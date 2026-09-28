@@ -72,6 +72,51 @@ Top-level `meta:` works too. Unknown keys are rejected. Heavy transformations be
 dbt models, where they are tested and versioned. The report only selects, filters and
 renders.
 
+#### SQL Control Fields
+Report configuration fields are passed in as parameters to the sql executed against the model.
+
+Supported Passthrough Fields:
+* `columns`:  YAML list
+* `where`:    text (sql where clause)
+* `order_by`: text (sql order-by clause)
+* `limit`:    integer
+
+Example:  
+* Template:  
+  ```YAML
+    - name: beverage_leaderboard
+      label: Best-Selling Beverages
+      type: analysis
+      description: Beverages ranked by units sold.
+      depends_on:
+        - ref('product_mix')
+      owner:
+        name: Menu Team
+      config:
+        meta:
+          dbtx:
+            report:
+              where: product_type = 'beverage'
+              order_by: units_sold desc
+              template: leaderboard        # same template as above, different params
+              template_params:
+                label: product_name
+                value: units_sold
+                decimals: 0
+  ```
+
+* SQL:
+  ```sql
+  select 
+    * 
+  from 
+    "jaffle_shop"."main"."product_mix" 
+  where 
+    product_type = 'beverage' 
+  order by 
+    units_sold desc
+  ```
+
 ### Output files
 
 Report SQL follows dbt's own `target/` layout, so it sits where dbt users already look:
