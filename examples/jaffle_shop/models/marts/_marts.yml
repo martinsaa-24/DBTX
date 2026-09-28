@@ -1,0 +1,38 @@
+models:
+  - name: orders
+    description: One row per order, with item counts.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('customers')
+                field: customer_id
+  - name: customers
+    description: One row per customer, with lifetime order stats.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: customer_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [prospect, new, returning]
+  - name: store_revenue_monthly
+    description: Revenue (ex. tax) per store and month.
+    columns:
+      - name: revenue
+        data_tests: [not_null]
+  - name: store_performance
+    description: Lifetime orders, customers and revenue per store.
+    columns:
+      - name: store_name
+        data_tests: [unique, not_null]
+  - name: product_mix
+    description: Units and revenue per product.
+    columns:
+      - name: product_name
+        data_tests: [unique, not_null]

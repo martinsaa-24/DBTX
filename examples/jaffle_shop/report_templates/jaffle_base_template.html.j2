@@ -1,0 +1,37 @@
+{#- Project template "jaffle_base": Jaffle Shop house style on top of the integrated "table".
+
+    Inheritance used by this project:
+
+        table (integrated)
+          └── jaffle_base (this file)      brand bar, palette, footer
+                ├── finance                adds a banner and a totals row
+                ├── leaderboard            replaces the table with ranked bars
+                └── scorecard              adds KPI tiles above the table
+
+    Children should call {{ super() }} in `style` to keep the house style. -#}
+{% extends "table" %}
+
+{% block style %}
+  :root { --accent: #c2410c; --accent-soft: #fde7d7; --brand: #7c2d12; }
+  @media (prefers-color-scheme: dark) {
+    :root { --accent: #fb923c; --accent-soft: #3b1d0e; --brand: #fdba74; }
+  }
+  .brand { display: flex; align-items: center; gap: 8px; margin: 0 0 20px;
+           font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+           font-size: 12px; color: var(--brand); }
+  .brand::before { content: ""; width: 18px; height: 18px; border-radius: 4px; background: var(--accent); }
+  th { border-bottom: 2px solid var(--accent); }
+  footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: 12px; }
+{% endblock %}
+
+{% block header %}
+  <div class="brand">Jaffle Shop · Analytics</div>
+  {{ super() }}
+{% endblock %}
+
+{% block footer %}
+  <footer>
+    {{ report.owner or "Jaffle Shop" }} · source: dbt exposure <code>{{ report.name }}</code> · {{ generated_at }}
+  </footer>
+{% endblock %}
