@@ -1,0 +1,43 @@
+{#- Project template "leaderboard": jaffle_base with the table replaced by ranked bars.
+
+    template_params:
+      label:    column shown as the entry name              (required)
+      value:    numeric column that ranks and sizes bars    (required)
+      detail:   column shown under the name                 (optional)
+      prefix:   text before each value, e.g. "$"            (default: "")
+      decimals: digits after the decimal point              (default: 2) -#}
+{% extends "jaffle_base" %}
+
+{% block style %}
+  {{ super() }}
+  .board { list-style: none; margin: 0; padding: 0; }
+  .board li { display: grid; grid-template-columns: 2.5em minmax(8em, 1fr) 2fr auto;
+              align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .rank { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .board li:nth-child(-n+3) .rank { color: var(--accent); font-weight: 700; }
+  .name small { display: block; color: var(--muted); }
+  .bar { height: 10px; border-radius: 5px; background: var(--accent-soft); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  .val { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  @media (max-width: 560px) {
+    .board li { grid-template-columns: 2em 1fr auto; }
+    .bar { grid-column: 2 / -1; grid-row: 2; }
+  }
+{% endblock %}
+
+{% block content %}
+  {%- set label, value = params.label, params.value %}
+  {%- set detail = params.get("detail") %}
+  {%- set prefix, decimals = params.get("prefix", ""), params.get("decimals", 2) %}
+  {%- set top = records | map(attribute=value) | max if records else 0 %}
+  <ol class="board">
+  {%- for r in records %}
+    <li>
+      <span class="rank">{{ loop.index }}</span>
+      <span class="name">{{ r[label] }}{% if detail %}<small>{{ detail | replace("_", " ") }}: {{ r[detail] }}</small>{% endif %}</span>
+      <span class="bar"><span style="width: {{ (100 * r[value] / top) | round(1) if top else 0 }}%"></span></span>
+      <span class="val">{{ prefix }}{{ "{:,.{}f}".format(r[value], decimals) }}</span>
+    </li>
+  {%- endfor %}
+  </ol>
+{% endblock %}

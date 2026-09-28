@@ -1,0 +1,35 @@
+{#- Project template "scorecard": jaffle_base with KPI tiles above the inherited table.
+
+    template_params:
+      tiles:                       one entry per tile
+        - label:    tile caption                              (required)
+          agg:      count | sum | max | min                   (required)
+          column:   column to aggregate (not used by count)
+          prefix:   text before the value, e.g. "$"           (default: "")
+          decimals: digits after the decimal point            (default: 0) -#}
+{% extends "jaffle_base" %}
+
+{% block style %}
+  {{ super() }}
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0 0 24px; }
+  .tile { border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 6px; padding: 12px 14px; }
+  .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+{% endblock %}
+
+{% block content %}
+  <div class="tiles">
+  {%- for tile in params.tiles %}
+    {%- if tile.agg == "count" %}{% set v = records | length %}
+    {%- elif tile.agg == "sum" %}{% set v = records | sum(attribute=tile.column) %}
+    {%- elif tile.agg == "max" %}{% set v = records | map(attribute=tile.column) | max %}
+    {%- elif tile.agg == "min" %}{% set v = records | map(attribute=tile.column) | min %}
+    {%- endif %}
+    <div class="tile">
+      <div class="k">{{ tile.label }}</div>
+      <div class="v">{{ tile.get("prefix", "") }}{{ "{:,.{}f}".format(v, tile.get("decimals", 0)) }}</div>
+    </div>
+  {%- endfor %}
+  </div>
+  {{ super() }}
+{% endblock %}

@@ -1,0 +1,29 @@
+name: jaffle_shop
+version: "1.0.0"
+profile: jaffle_shop
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+target-path: target
+
+vars:
+  dbtx:
+    # Extra folders searched for <name>_template.html(.j2) files. A project template
+    # replaces an integrated one of the same name.
+    template_paths: [report_templates]
+
+seeds:
+  jaffle_shop:
+    raw_orders:
+      +column_types:
+        ordered_at: timestamp
+
+models:
+  jaffle_shop:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: ephemeral
+    marts:
+      +materialized: table

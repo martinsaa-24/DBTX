@@ -1,0 +1,28 @@
+{#- Project template "finance": jaffle_base plus a finance banner and a totals row.
+
+    template_params:
+      totals: [column, ...]   columns to sum in the footer row (default: none) -#}
+{% extends "jaffle_base" %}
+
+{% block style %}
+  {{ super() }}
+  .banner { border-left: 4px solid var(--accent); padding: 4px 12px; margin: 0 0 16px; color: var(--muted); }
+  tfoot td { font-weight: 600; border-top: 2px solid var(--line); }
+{% endblock %}
+
+{% block header %}
+  {{ super() }}
+  <p class="banner">Finance · internal</p>
+{% endblock %}
+
+{% block table_footer %}
+  {%- set totals = params.get("totals", []) %}
+  <tfoot><tr>
+  {%- for c in columns %}
+    {%- if loop.first %}<td>Total</td>
+    {%- elif c in totals %}<td>{{ records | sum(attribute=c) }}</td>
+    {%- else %}<td></td>
+    {%- endif %}
+  {%- endfor %}
+  </tr></tfoot>
+{% endblock %}

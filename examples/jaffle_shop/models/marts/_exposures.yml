@@ -1,0 +1,128 @@
+exposures:
+  - name: store_revenue_monthly
+    label: Monthly Revenue by Store
+    type: analysis
+    description: Revenue excluding tax, per store and month.
+    depends_on:
+      - ref('store_revenue_monthly')
+    owner:
+      name: Finance Analytics
+      email: finance@jaffle.shop
+    config:
+      meta:
+        dbtx:
+          report:
+            order_by: order_month, store_name
+            formats: [html, csv]
+            template: finance            # project template: table > jaffle_base > finance
+            template_params:
+              totals: [order_count, revenue, tax_paid]
+
+  - name: top_customers
+    label: Top 25 Customers
+    type: analysis
+    description: Highest lifetime spend.
+    depends_on:
+      - ref('customers')
+    owner:
+      name: Growth
+    meta:
+      dbtx:
+        report:
+          columns: [customer_name, order_count, lifetime_spend, last_ordered_at]
+          order_by: lifetime_spend desc, customer_name
+          limit: 25
+          template: table              # shipped with dbtx (integrated)
+
+  - name: jaffle_mix
+    label: Jaffle Sales Mix
+    type: analysis
+    depends_on:
+      - ref('product_mix')
+      - ref('orders')
+    owner:
+      name: Menu Team
+    config:
+      meta:
+        dbtx:
+          report:
+            model: product_mix
+            where: product_type = 'jaffle'
+            order_by: units_sold desc
+            formats: [csv, html]
+            # An exact file for this report only; wins over any `template:` name.
+            template_path: exposure_templates/jaffle_mix.html
+
+  - name: customer_leaderboard
+    label: Customer Leaderboard
+    type: analysis
+    description: The ten customers with the highest lifetime spend.
+    depends_on:
+      - ref('customers')
+    owner:
+      name: Growth
+    config:
+      meta:
+        dbtx:
+          report:
+            columns: [customer_name, order_count, lifetime_spend]
+            order_by: lifetime_spend desc, customer_name
+            limit: 10
+            template: leaderboard        # project template: table > jaffle_base > leaderboard
+            template_params:
+              label: customer_name
+              value: lifetime_spend
+              detail: order_count
+              prefix: "$"
+
+  - name: beverage_leaderboard
+    label: Best-Selling Beverages
+    type: analysis
+    description: Beverages ranked by units sold.
+    depends_on:
+      - ref('product_mix')
+    owner:
+      name: Menu Team
+    config:
+      meta:
+        dbtx:
+          report:
+            where: product_type = 'beverage'
+            order_by: units_sold desc
+            template: leaderboard        # same template as above, different params
+            template_params:
+              label: product_name
+              value: units_sold
+              decimals: 0
+
+  - name: store_scorecard
+    label: Store Scorecard
+    type: analysis
+    description: Lifetime performance of every store.
+    depends_on:
+      - ref('store_performance')
+    owner:
+      name: Operations
+    config:
+      meta:
+        dbtx:
+          report:
+            order_by: revenue desc
+            formats: [html, csv]
+            template: scorecard          # project template: table > jaffle_base > scorecard
+            template_params:
+              tiles:
+                - {label: Stores, agg: count}
+                - {label: Orders, agg: sum, column: order_count}
+                - {label: Revenue, agg: sum, column: revenue, prefix: "$", decimals: 2}
+                - {label: Best store revenue, agg: max, column: revenue, prefix: "$", decimals: 2}
+
+  # Not a dbtx report: it has no dbtx.report meta, so dbtx ignores it.
+  - name: executive_dashboard
+    type: dashboard
+    url: https://bi.example.com/dashboards/1
+    depends_on:
+      - ref('store_revenue_monthly')
+      - ref('customers')
+    owner:
+      name: Leadership

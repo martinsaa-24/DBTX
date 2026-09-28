@@ -1,0 +1,3 @@
+# dbt checksums file contents; keep them identical across OSes.
+* text=auto eol=lf
+*.duckdb binary

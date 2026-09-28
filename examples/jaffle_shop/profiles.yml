@@ -1,0 +1,9 @@
+jaffle_shop:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Kept out of target/, which `dbt clean` deletes, so the warehouse survives it.
+      # Relative to the directory dbt runs from (the project root).
+      path: jaffle_shop.duckdb
+      threads: 4
