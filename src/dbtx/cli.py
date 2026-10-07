@@ -3,6 +3,7 @@
     dbtx build [--no-reports] [dbt build options...]   build + render reports in one run
     dbtx compile [--no-reports] [dbt compile options...]  compile, validate reports, write their SQL
     dbtx templates [--project-dir DIR]                 list the templates a project can use
+    dbtx docs patch|install|status [options...]        overlay run data onto generated dbt docs
     dbtx <any other dbt command> [options...]           passed straight through to dbt
 """
 
@@ -13,8 +14,13 @@ from pathlib import Path
 
 from dbt.cli.main import dbtRunner
 
+from dbtx.docs.command import run as docs_command
 from dbtx.runner import build, compile_project, exit_code
 from dbtx.templates import TemplateError, TemplateRegistry
+
+# Subcommands of `dbtx docs` that are ours; anything else under `docs`
+# (generate, serve) stays dbt's and is passed through untouched.
+DOCS_SUBCOMMANDS = {"patch", "install", "status"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,6 +35,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args and args[0] == "templates":
         return list_templates(args[1:])
+
+    if args and args[0] == "docs" and len(args) > 1 and args[1] in DOCS_SUBCOMMANDS:
+        return docs_command(args[1:])
 
     return exit_code(dbtRunner().invoke(args))
 
