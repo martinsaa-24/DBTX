@@ -9,10 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import click
 import yaml
-from click.core import ParameterSource
+from click.core import Parameter, ParameterSource
+from dbt.cli.exceptions import DbtUsageException
 from dbt.cli.main import cli as dbt_cli
 from dbt.cli.main import dbtRunner, dbtRunnerResult
+from dbt.cli.option_types import YAML
 
 from dbt_common.events.base_types import EventLevel
 from dbt_common.events.functions import fire_event
@@ -30,6 +33,20 @@ def exit_code(result: dbtRunnerResult) -> int:
     return 2 if result.exception is not None else 1
 
 
+def usage_error(command: str, args: list[str]) -> str | None:
+    """click's own complaint about `args`, or None when dbt's `command` accepts them.
+
+    Checked before anything else: `explicit_params` parses resiliently, which turns an
+    option click rejects into None and so drops it from the argv `argv_for` rebuilds.
+    Without this the run would fail later, reporting the default of the option that went
+    missing rather than what the user actually typed."""
+    try:
+        dbt_cli.commands[command].make_context(command, list(args))
+    except click.UsageError as exc:
+        return exc.format_message()
+    return None
+
+
 def explicit_params(command: str, args: list[str]) -> dict[str, Any]:
     """Parse `args` as dbt's `command` would, keeping only options given on the command line.
 
@@ -43,17 +60,48 @@ def explicit_params(command: str, args: list[str]) -> dict[str, Any]:
     }
 
 
-def params_for(command: str, params: dict[str, Any]) -> dict[str, Any]:
-    """Subset of `params` that dbt's `command` accepts (e.g. `--select` for ls, not for parse)."""
-    accepted = {p.name for p in dbt_cli.commands[command].params}
-    return {k: v for k, v in params.items() if k in accepted}
+def _long_opt(param: Parameter) -> str:
+    """The option's long form; `--select`'s own `opts[0]` is `-s`, which reads badly in logs."""
+    return next((opt for opt in param.opts if opt.startswith("--")), param.opts[0])
+
+
+def argv_for(command: str, params: dict[str, Any]) -> list[str]:
+    """Render `params` as command-line tokens for dbt's `command`, dropping the options it
+    does not accept (e.g. `--select` for ls, not for parse).
+
+    Options are handed to dbt on the argv rather than through `dbtRunner.invoke(**kwargs)`:
+    kwargs are applied only after click has built the command's context, so click still
+    parses and validates every option's *default* -- and `--project-dir`/`--profiles-dir`
+    are `click.Path(exists=True)` whose default is the cwd when it holds a `profiles.yml`
+    and `~/.dbt` otherwise. Running from outside a dbt project with no `~/.dbt` therefore
+    failed the invocation on a default the kwarg was about to replace.
+    """
+    accepted = {p.name: p for p in dbt_cli.commands[command].params}
+    tokens: list[str] = []
+    for name, value in params.items():
+        param = accepted.get(name)
+        if param is None:
+            continue
+        if getattr(param, "is_flag", False):
+            # A `--flag/--no-flag` pair; a flag with no negation is emitted only when set.
+            opts = param.opts if value else param.secondary_opts
+            if opts:
+                tokens.append(_long_opt(param) if value else opts[0])
+        elif isinstance(param.type, YAML):
+            # Flow style keeps it to the single argv token dbt's YAML option expects.
+            tokens += [_long_opt(param), yaml.safe_dump(value, default_flow_style=True).strip()]
+        elif getattr(param, "multiple", False):
+            tokens += [tok for v in value for tok in (_long_opt(param), str(v))]
+        else:
+            tokens += [_long_opt(param), str(value)]
+    return tokens
 
 
 def selected_unique_ids(manifest: Any, params: dict[str, Any]) -> set[str]:
     """Resolve the user's selection exactly as dbt would, via `dbt ls`."""
     result = dbtRunner(manifest=manifest).invoke(
-        ["ls", "--output", "json", "--output-keys", "unique_id", "--log-level", "none"],
-        **params_for("list", params),
+        ["ls", "--output", "json", "--output-keys", "unique_id", "--log-level", "none"]
+        + argv_for("list", params)
     )
     if not result.success:
         raise RuntimeError(f"could not resolve selection: {result.exception}")
@@ -149,15 +197,26 @@ class Prepared:
 def prepare(command: str, args: list[str], params: dict[str, Any]) -> Prepared:
     """Start-up shared by `build` and `compile`: resolve templates, parse the project and
     validate every report definition, all before dbt does any real work."""
+    problem = usage_error(command, args)
+    if problem:
+        print(f"dbtx: {problem}")
+        raise Stop(2)
+
     try:
         templates = TemplateEngine(TemplateRegistry.for_project(project_root(params)))
     except TemplateError as exc:
         print(f"dbtx: {exc}")
         raise Stop(2) from None
 
-    parsed = dbtRunner().invoke(["parse", "--quiet"], **params_for("parse", params))
+    parsed = dbtRunner().invoke(["parse", "--quiet", *argv_for("parse", params)])
     if not parsed.success:
-        # Let dbt report the parse error in its usual format.
+        if isinstance(parsed.exception, DbtUsageException):
+            # dbt rejected the argv dbtx rebuilt, not the project. Falling back to the
+            # user's own argv would succeed and silently render no reports at all, so
+            # fail instead -- `usage_error` above has already ruled out their own options.
+            print(f"dbtx: cannot run dbt parse: {parsed.exception}")
+            raise Stop(2)
+        # A real project error. Let dbt report it in its usual format.
         raise Stop(exit_code(dbtRunner().invoke([command, *args])))
     manifest = parsed.result
 
