@@ -98,21 +98,42 @@ def test_render_errors_are_captured(report):
     assert outcome(scheduler).detail == "ValueError: no such column"
 
 
-def test_finish_waits_for_in_flight_renders(report):
-    started, release = threading.Event(), threading.Event()
+def test_renders_on_the_thread_that_delivered_the_event(report):
+    """dbt closes the adapter's connections as soon as `execute_nodes()` returns, so the
+    render has to happen on the node thread itself -- while that call is still blocked --
+    rather than being left in flight for `finish` to collect."""
+    seen = {}
+
+    def record(_):
+        seen["thread"] = threading.get_ident()
+        return []
+
+    scheduler, _ = make(report, gate_tests=(), render=record)
+    scheduler.node_finished(EXPOSURE, "no-op")
+
+    assert seen["thread"] == threading.get_ident()
+    assert outcome(scheduler).status == "rendered"  # already done, before finish()
+
+
+def test_a_rendering_report_does_not_block_dbts_other_threads(report):
+    """The render holds a dbt node thread but not the scheduler's lock, so the rest of
+    the run keeps reporting its nodes meanwhile."""
+    rendering, other_reported = threading.Event(), threading.Event()
 
     def slow(_):
-        started.set()
-        release.wait(5)
+        rendering.set()
+        assert other_reported.wait(5), "another dbt thread was blocked by the render"
         return []
 
     scheduler, _ = make(report, gate_tests=(), render=slow)
-    scheduler.node_finished(EXPOSURE, "no-op")
-    assert started.wait(5)
-    assert outcome(scheduler).status == "running"
+    node_thread = threading.Thread(target=scheduler.node_finished, args=(EXPOSURE, "no-op"))
+    node_thread.start()
+    assert rendering.wait(5)
 
-    threading.Timer(0.1, release.set).start()
-    scheduler.finish()
+    scheduler.node_finished(TEST_A, "pass")  # another thread's event still gets through
+    other_reported.set()
+
+    node_thread.join(5)
     assert outcome(scheduler).status == "rendered"
 
 

@@ -252,7 +252,6 @@ def build(args: list[str], reports_enabled: bool = True) -> int:
     scheduler = ReportScheduler(
         plans,
         render=lambda report: query_and_render(adapter_type, report, prep.paths, prep.templates),
-        max_workers=params.get("threads") or 4,
     )
     result = dbtRunner(manifest=prep.manifest, callbacks=[scheduler.on_event]).invoke(
         ["build", *args]
