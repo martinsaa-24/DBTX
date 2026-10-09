@@ -6,6 +6,8 @@ import json
 
 import yaml
 
+from dbtx.docs.exposure_reports import ReportAsset
+
 DEFAULT_HISTORY_LIMIT: int = 3
 # The `--vars` key naming the job an invocation belongs to. run_results.json is
 # the only dbt artifact that records an invocation's vars at all -- manifest.json
@@ -108,6 +110,10 @@ class DocNode:
         self.json_dat: dict = dat
         # Newest result first, capped at the catalog's history limit.
         self.run_history: List[NodeResult] = []
+        # The rendered report belonging to this node, for exposures that have
+        # one. Discovered from disk on each patch rather than accumulated, so it
+        # is never hydrated from the sidecar.
+        self.report: Optional[ReportAsset] = None
 
     @property
     def run_result(self) -> Optional[NodeResult]:
@@ -251,6 +257,11 @@ class DocsCatalog:
         # Load each relevant json section
         self.metadata = manifest_dat['metadata']
         self.nodes = self._parse_manifest_nodes(manifest_dat['nodes'])
+        # Exposures sit in their own manifest section rather than under `nodes`,
+        # but the docs site routes to them identically and run_results reports
+        # them like any other node, so they belong in the same keyspace here.
+        # Without this they were reported as `ignored (not in docs)` on patch.
+        self.nodes.update(self._parse_manifest_nodes(manifest_dat.get('exposures') or {}))
         self.parsed = True
 
     def _parse_runresults(self, results: dict, checksums: Optional[Dict[str, str]] = None,

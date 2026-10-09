@@ -1,7 +1,15 @@
 /* dbtx docs runtime overlay.
  *
- * Renders accumulated run data from dbtx_runtime.json into the dbt docs site,
- * as a panel immediately below the node's Description section.
+ * Renders dbtx's own data from dbtx_runtime.json into the dbt docs site, as
+ * panels immediately below the node's Description section: accumulated run
+ * results for every node, and for an exposure that has one, its rendered
+ * report embedded in an iframe.
+ *
+ * The report is iframed rather than inlined because `dbtx build` writes whole
+ * HTML documents, which cannot be dropped into this page's DOM and whose CSS
+ * would collide with the docs app's. It is served from the docs' own origin --
+ * `dbt docs serve` serves the directory the reports are written into -- so the
+ * frame is same-origin and its height can be measured directly.
  *
  * The docs site is an Angular 1 app with hash routing, so the node detail DOM
  * is torn down and rebuilt on every navigation. This script therefore does not
@@ -13,12 +21,19 @@
 
   var SIDECAR = "dbtx_runtime.json";
   var SECTION_ID = "dbtx-runtime-section";
+  var REPORT_SECTION_ID = "dbtx-report-section";
+  // Enough to show a short table before autosizing measures the real height,
+  // and the standing height if measurement is unavailable.
+  var REPORT_MIN_HEIGHT = 320;
   var state = { nodes: {}, loaded: false, historyLimit: null, version: 0 };
 
-  // dbt routes are "#!/<resource>/<unique_id>?section=...". The unique_id
-  // contains dots but never a slash or a query delimiter.
+  // dbt routes are "#!/<resource>/<unique_id>", optionally followed by
+  // "?section=..." or a second "#<tab>" fragment -- the details tab links as
+  // ".../<unique_id>#details". The unique_id contains dots but none of those
+  // delimiters, so all of them are excluded: without the "#" the id captured
+  // the tab name as well and never matched the sidecar.
   function currentUniqueId() {
-    var m = /#!?\/[a-z_]+\/([^?&/]+)/.exec(window.location.hash || "");
+    var m = /#!?\/[a-z_]+\/([^?&/#]+)/.exec(window.location.hash || "");
     return m ? decodeURIComponent(m[1]) : null;
   }
 
@@ -179,6 +194,121 @@
     body.appendChild(table);
   }
 
+  function fmtBytes(n) {
+    var b = Number(n);
+    if (!isFinite(b) || b <= 0) return null;
+    if (b < 1024) return b + " B";
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+    return (b / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  // The docs page cannot know how tall a report is, and a fixed height either
+  // clips the table or leaves dead space under it. The report is served from
+  // the docs' own origin, so its document is readable here and can be measured
+  // directly -- no change to the report templates, unlike a postMessage
+  // handshake. Anything that blocks the read keeps the CSS fallback height.
+  function autosize(frame) {
+    function fit() {
+      try {
+        var doc = frame.contentDocument;
+        if (!doc || !doc.documentElement) return;
+        var height = Math.max(
+          doc.documentElement.scrollHeight,
+          doc.body ? doc.body.scrollHeight : 0
+        );
+        if (height > 0) {
+          frame.style.height = Math.max(height, REPORT_MIN_HEIGHT) + "px";
+        }
+        // Re-measure if the report's own content reflows (a chart sizing
+        // itself, a web font landing). Guarded: not every embedded document
+        // exposes a usable view.
+        if (!frame.__dbtxObserved && doc.defaultView && doc.defaultView.ResizeObserver) {
+          frame.__dbtxObserved = true;
+          new doc.defaultView.ResizeObserver(fit).observe(doc.documentElement);
+        }
+      } catch (e) {
+        /* Not readable: the fallback height stands. */
+      }
+    }
+    frame.addEventListener("load", fit);
+    fit();
+  }
+
+  function renderReport(body, report) {
+    var meta = el("div", "text-muted");
+    meta.style.marginBottom = "0.75em";
+    var bits = [];
+    if (report.generated_at) bits.push("Rendered " + fmtTimestamp(report.generated_at));
+    var size = fmtBytes(report.size_bytes);
+    if (size) bits.push(size);
+    meta.textContent = bits.join(" · ");
+
+    var links = el("span");
+    links.style.marginLeft = bits.length ? "0.75em" : "0";
+    // Opening in a tab is the escape hatch when the embed is too small to read
+    // comfortably, or when a reader wants to print or share just the report.
+    var open = el("a", null, "Open in new tab");
+    open.href = report.html;
+    open.target = "_blank";
+    open.rel = "noopener";
+    links.appendChild(open);
+    if (report.csv) {
+      links.appendChild(el("span", null, " · "));
+      var dl = el("a", null, "Download CSV");
+      dl.href = report.csv;
+      // `download` turns the navigation into a save, so a CSV the browser
+      // would otherwise render as text lands as a file named after the report.
+      dl.setAttribute("download", "");
+      links.appendChild(dl);
+    }
+    meta.appendChild(links);
+    body.appendChild(meta);
+
+    var frame = document.createElement("iframe");
+    frame.src = report.html;
+    frame.title = "Rendered report";
+    frame.style.width = "100%";
+    frame.style.height = REPORT_MIN_HEIGHT + "px";
+    frame.style.border = "1px solid #dfe2e5";
+    frame.style.borderRadius = "3px";
+    frame.style.background = "#fff";
+    // The report is first-party output, but it is still a whole document being
+    // embedded: no top-level navigation and no popups from inside the frame.
+    frame.setAttribute("sandbox", "allow-same-origin");
+    frame.setAttribute("loading", "lazy");
+    body.appendChild(frame);
+    autosize(frame);
+  }
+
+  function buildReportSectionNeeded(uniqueId) {
+    var entry = state.nodes[uniqueId];
+    return state.loaded && entry && entry.report && entry.report.html;
+  }
+
+  function buildReportSection(uniqueId) {
+    var entry = state.nodes[uniqueId];
+    var report = entry && entry.report ? entry.report : null;
+    if (!state.loaded || !report || !report.html) return null;
+
+    var section = el("section", "section");
+    section.id = REPORT_SECTION_ID;
+
+    var target = el("div", "section-target");
+    target.id = "dbtx-report";
+    section.appendChild(target);
+
+    var content = el("div", "section-content");
+    content.appendChild(el("h6", null, "Report"));
+
+    var panel = el("div", "panel");
+    var body = el("div", "panel-body");
+    renderReport(body, report);
+    panel.appendChild(body);
+    content.appendChild(panel);
+    section.appendChild(content);
+    return section;
+  }
+
   function buildSection(uniqueId) {
     var section = el("section", "section");
     section.id = SECTION_ID;
@@ -220,7 +350,17 @@
   // comparing the node alone would leave "Loading run data..." on screen
   // forever.
   function signature(uniqueId) {
-    return uniqueId + "|" + (state.loaded ? "loaded" : "pending") + "|" + state.version;
+    var entry = state.nodes[uniqueId];
+    var report = entry && entry.report ? entry.report : null;
+    return (
+      uniqueId +
+      "|" +
+      (state.loaded ? "loaded" : "pending") +
+      "|" +
+      state.version +
+      "|" +
+      (report ? report.html + "@" + (report.generated_at || "") : "noreport")
+    );
   }
 
   // The Description section to sit under. There can be more than one in the
@@ -251,25 +391,38 @@
     if (!uniqueId) return;
 
     var sig = signature(uniqueId);
-    var existing = document.querySelectorAll("#" + SECTION_ID);
+    var existing = document.querySelectorAll("#" + SECTION_ID + ", #" + REPORT_SECTION_ID);
 
     // A panel already showing current content is left strictly alone -- not
     // moved, not rebuilt. Anything found here is attached to the document, so
     // it is on screen; relocating it risks pulling it out of the view being
     // read, and rebuilding it would briefly blank it for no gain. Position can
     // drift if the app re-renders around it; that is the cheaper problem.
-    if (existing.length === 1 && existing[0].getAttribute("data-dbtx-sig") === sig) {
-      return;
+    var reportWanted = !!buildReportSectionNeeded(uniqueId);
+    var expected = reportWanted ? 2 : 1;
+    if (existing.length === expected) {
+      var current = true;
+      for (var j = 0; j < existing.length; j++) {
+        if (existing[j].getAttribute("data-dbtx-sig") !== sig) current = false;
+      }
+      if (current) return;
     }
 
     for (var i = 0; i < existing.length; i++) {
       if (existing[i].parentNode) existing[i].parentNode.removeChild(existing[i]);
     }
 
-    var section = buildSection(uniqueId);
-    section.setAttribute("data-dbtx-node", uniqueId);
-    section.setAttribute("data-dbtx-sig", sig);
-    hostSection.parentNode.insertBefore(section, hostSection.nextSibling);
+    // Report below Run Results, both below Description: the reader sees what the
+    // node is, then whether it is current, then its output.
+    var sections = [buildSection(uniqueId), buildReportSection(uniqueId)];
+    var after = hostSection;
+    for (var k = 0; k < sections.length; k++) {
+      if (!sections[k]) continue;
+      sections[k].setAttribute("data-dbtx-node", uniqueId);
+      sections[k].setAttribute("data-dbtx-sig", sig);
+      after.parentNode.insertBefore(sections[k], after.nextSibling);
+      after = sections[k];
+    }
   }
 
   var scheduled = false;

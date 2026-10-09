@@ -76,6 +76,10 @@ def hydrate(catalog: DocsCatalog, docs_loc: Path) -> int:
 
     Entries for nodes no longer in the docs manifest are dropped. Returns the
     number of nodes hydrated.
+
+    Rendered reports are deliberately not hydrated: they are rediscovered from
+    disk on every patch, so carrying the previous entry forward would resurrect
+    a report whose file has since been deleted.
     """
     if not catalog.parsed:
         raise SidecarError("parse_manifest() must run before hydrate()")
@@ -103,9 +107,15 @@ def write(catalog: DocsCatalog, docs_loc: Path) -> Path:
     """
     nodes: Dict[str, dict] = {}
     for unique_id, doc_node in catalog.nodes.items():
-        if not doc_node.run_history:
-            continue
-        nodes[unique_id] = {'runs': [r.to_dict() for r in doc_node.run_history]}
+        entry: Dict[str, object] = {}
+        if doc_node.run_history:
+            entry['runs'] = [r.to_dict() for r in doc_node.run_history]
+        # An exposure can carry a rendered report without ever having run
+        # results worth keeping, so presence of either earns an entry.
+        if doc_node.report is not None:
+            entry['report'] = doc_node.report.to_dict()
+        if entry:
+            nodes[unique_id] = entry
 
     dat = {
         'dbtx_schema_version': SIDECAR_SCHEMA_VERSION,

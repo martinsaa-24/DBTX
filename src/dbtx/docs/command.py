@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from dbtx.docs import injector, sidecar
 from dbtx.docs.catalog import DEFAULT_JOB_ID_VAR
+from dbtx.docs.exposure_reports import REPORTS_SUBDIR
 from dbtx.docs.patch import PatchError, patch, status
 
 USAGE = """\
@@ -83,6 +84,8 @@ def _patch(args: List[str]) -> int:
           else f"  no job id (run passed no {job_id_var or DEFAULT_JOB_ID_VAR!r} var)")
     print(f"  carried forward {result.hydrated} node(s) from previous runs")
     print(f"  history limit {result.history_limit}, wrote {_rel(result.sidecar_file)}")
+    print(f"  {result.reports_found} rendered exposure report(s) in "
+          f"{REPORTS_SUBDIR}/")
     if result.overlay_installed:
         print("  installed runtime overlay into index.html")
     if result.tally.ignored:
@@ -120,5 +123,6 @@ def _status(args: List[str]) -> int:
             print(f"    ... and {len(result.failing) - 10} more")
     print(f"  history limit {result.history_limit}")
     print(f"  last patched {result.updated_at or 'never'}")
+    print(f"  {result.reports_found} rendered exposure report(s) in {REPORTS_SUBDIR}/")
     print(f"  overlay {'installed' if result.overlay_installed else 'not installed'}")
     return 0

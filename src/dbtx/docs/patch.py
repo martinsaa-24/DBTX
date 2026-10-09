@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from dbtx.docs import injector, sidecar
+from dbtx.docs import exposure_reports, injector, sidecar
 from dbtx.docs.catalog import DEFAULT_JOB_ID_VAR, DocsCatalog, PatchTally
 
 
@@ -32,6 +32,8 @@ class PatchResult:
     # The job id carried by the run just merged, or None if it passed no such
     # var. Reported back so a caller can confirm the tag was picked up.
     job_id: Optional[str] = None
+    # Rendered exposure reports found beside the docs on this patch.
+    reports_found: int = 0
 
 
 @dataclass
@@ -43,7 +45,16 @@ class StatusResult:
     history_limit: int
     updated_at: Optional[str]
     overlay_installed: bool
+    reports_found: int = 0
     failing: List[str] = field(default_factory=list)
+
+
+def _attach_reports(catalog: DocsCatalog, docs_loc: Path) -> int:
+    """Hangs each discovered report on its exposure. Returns how many were found."""
+    found = exposure_reports.discover(catalog.nodes, docs_loc)
+    for unique_id, asset in found.items():
+        catalog.nodes[unique_id].report = asset
+    return len(found)
 
 
 def _require(path: Path, what: str) -> Path:
@@ -79,6 +90,9 @@ def patch(docs_loc: Path, run_loc: Path, history_limit: Optional[int] = None,
         force=force,
         job_id_var=job_id_var,
     )
+    # After hydrate, so a rediscovered report is never overwritten by a stale
+    # one, and before write, which is what persists it for the overlay.
+    reports = _attach_reports(catalog, docs_loc)
     sidecar_file = sidecar.write(catalog, docs_loc)
 
     overlay_installed = False
@@ -95,6 +109,7 @@ def patch(docs_loc: Path, run_loc: Path, history_limit: Optional[int] = None,
         sidecar_file=sidecar_file,
         overlay_installed=overlay_installed,
         job_id=catalog.run_job_id,
+        reports_found=reports,
     )
 
 
@@ -107,6 +122,7 @@ def status(docs_loc: Path) -> StatusResult:
     catalog = DocsCatalog(history_limit=limit)
     catalog.parse_manifest(str(docs_manifest))
     sidecar.hydrate(catalog, docs_loc)
+    reports = _attach_reports(catalog, docs_loc)
 
     with_runs = 0
     stale = 0
@@ -130,5 +146,6 @@ def status(docs_loc: Path) -> StatusResult:
         history_limit=limit,
         updated_at=raw.get('updated_at'),
         overlay_installed=injector.is_installed(docs_loc / "index.html"),
+        reports_found=reports,
         failing=failing,
     )
