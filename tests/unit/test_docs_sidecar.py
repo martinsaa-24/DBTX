@@ -207,7 +207,7 @@ def test_asset_version_tracks_asset_contents(docs_loc: Path, monkeypatch):
     new_source = "/* new overlay */\n"
     changed = docs_loc / "changed.js"
     changed.write_text(new_source, encoding="utf-8")
-    monkeypatch.setattr(injector, "_asset_source", lambda: changed)
+    monkeypatch.setattr(injector, "asset_source", lambda: changed)
     injector.install(docs_loc)
 
     after = (docs_loc / "index.html").read_text(encoding="utf-8")

@@ -14,6 +14,10 @@ dbtx docs patch   --docs-loc DIR --run-loc DIR [--history N] [--force] [--no-ove
                   [--job-id-var NAME]
 dbtx docs install --docs-loc DIR [--uninstall]
 dbtx docs status  --docs-loc DIR
+dbtx docs serve   --docs-loc DIR [--host HOST] [--port N] [--browser]
+
+Any other `dbtx docs` subcommand, `generate` included, is passed through to dbt.
+`serve` needs the serve extra: pip install 'dbtx[serve]'
 """
 
 
@@ -54,6 +58,8 @@ def run(args: List[str]) -> int:
             return _install(rest)
         if sub == "status":
             return _status(rest)
+        if sub == "serve":
+            return _serve(rest)
     except (PatchError, sidecar.SidecarError, injector.InjectionError) as exc:
         print(f"dbtx docs: {exc}")
         return 2
@@ -121,4 +127,38 @@ def _status(args: List[str]) -> int:
     print(f"  history limit {result.history_limit}")
     print(f"  last patched {result.updated_at or 'never'}")
     print(f"  overlay {'installed' if result.overlay_installed else 'not installed'}")
+    return 0
+
+
+def _serve(args: List[str]) -> int:
+    # Imported here, not at module scope: the server needs the optional
+    # `serve` extra, and `dbtx docs patch/install/status` must keep working
+    # without it.
+    try:
+        from dbtx.docs import server
+    except ImportError as exc:  # pragma: no cover - depends on install shape
+        raise PatchError(
+            "`dbtx docs serve` needs the serve extra: pip install 'dbtx[serve]'"
+        ) from exc
+
+    docs_loc = _docs_loc(args)
+    port = _opt(args, "--port")
+    try:
+        port = int(port) if port is not None else server.DEFAULT_PORT
+    except ValueError:
+        raise PatchError(f"--port must be a number, got {port!r}") from None
+    # The range itself is server.bind's to enforce, so a programmatic caller
+    # gets the same check; this only relabels it as the option it came from.
+    if not 0 <= port <= server.MAX_PORT:
+        raise PatchError(f"--port must be between 0 and {server.MAX_PORT}, got {port}")
+
+    try:
+        server.serve(
+            docs_loc,
+            host=_opt(args, "--host") or server.DEFAULT_HOST,
+            port=port,
+            open_browser="--browser" in args,
+        )
+    except server.ServerError as exc:
+        raise PatchError(str(exc)) from exc
     return 0
