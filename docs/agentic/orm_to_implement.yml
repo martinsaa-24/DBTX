@@ -1,0 +1,356 @@
+version: 2
+
+# Field types
+#   string     text
+#   integer    integer
+#   float      double precision
+#   timestamp  timezone-aware, always stored and returned as UTC
+#   json       native JSON where the backend has it, text otherwise (SQLite)
+#
+# Table keys
+#   primary_key   column list
+#   foreign_keys  [{columns, references: table(columns)}] -- composite where listed together
+#   indexes       [{columns}] -- for reads the primary key does not cover
+#
+# possible_values
+#   enforced_by: db   CHECK constraint; values dbtx itself controls
+#   enforced_by: app  validated in Python only; values that come from dbt, so a
+#                     dbt upgrade adding a value cannot break inserts
+#
+# Changes in version 2
+#   platform.project  new: registry binding each dbt project name to one project folder
+#   job.project       new, nullable, FK -> project
+#   invocation, node  FK (project) -> project(project)
+
+entities:
+  platform:
+    project:                             # one row per dbt project name in this database
+      primary_key: [project]
+      indexes:
+        - columns: [folder]                         # names a folder has held
+      attributes:
+        - field_name: project            # dbt_project.yml name / manifest metadata.project_name
+          field_type: string
+        - field_name: folder             # project folder name under the platform root; not unique,
+          field_type: string             # a folder whose dbt project is renamed keeps its old row
+        - field_name: claimed_at
+          field_type: timestamp
+        - field_name: claimed_by_host
+          field_type: string
+          nullable: true
+        - field_name: last_seen_at
+          field_type: timestamp
+
+  events:
+    job:
+      primary_key: [job_id]
+      foreign_keys:
+        - columns: [project]
+          references: project(project)
+      indexes:
+        - columns: [status, requested_at]          # job queue
+      attributes:
+        - field_name: job_id
+          field_type: string
+        - field_name: project            # project the job runs; null for jobs recorded from
+          field_type: string             # an external `--vars job_id` run before it is known
+          nullable: true
+        - field_name: trigger
+          field_type: string
+        - field_name: requested_at
+          field_type: timestamp
+        - field_name: status
+          field_type: string
+          enforced_by: db
+          possible_values:
+            - pending
+            - running
+            - cancelled
+            - finished
+        - field_name: result
+          field_type: string
+          nullable: true          # set once status is finished
+          enforced_by: db
+          possible_values:
+            - success
+            - warning
+            - failure
+        - field_name: start_time
+          field_type: timestamp
+          nullable: true          # null while pending
+        - field_name: end_time
+          field_type: timestamp
+          nullable: true
+
+    invocation:
+      primary_key: [invocation_id]
+      foreign_keys:
+        - columns: [job_id]
+          references: job(job_id)
+        - columns: [project]
+          references: project(project)
+      indexes:
+        - columns: [job_id]
+        - columns: [project, start_time]          # recent activity per project
+      attributes:
+        - field_name: invocation_id
+          field_type: string
+        - field_name: job_id
+          field_type: string
+          nullable: true          # plain `dbt run` with no job_id var
+        - field_name: project       # manifest metadata.project_name
+          field_type: string
+        - field_name: command
+          field_type: string
+          enforced_by: db
+          possible_values:
+            - parse
+            - compile
+            - test
+            - run
+            - build
+            - seed
+            - snapshot
+            - source freshness
+            - run-operation
+            - docs generate
+        - field_name: start_time
+          field_type: timestamp
+        - field_name: end_time
+          field_type: timestamp
+          nullable: true
+        - field_name: result
+          field_type: string
+          nullable: true
+          enforced_by: db
+          possible_values:
+            - success
+            - warning
+            - failure
+        - field_name: dbt_version        # run_results metadata.dbt_version
+          field_type: string
+        - field_name: adapter_type       # manifest metadata.adapter_type
+          field_type: string
+        - field_name: target             # resolved target name
+          field_type: string
+        - field_name: selector           # args.select / args.selector
+          field_type: string
+          nullable: true
+        - field_name: args               # full args blob, incl. vars & flags
+          field_type: json
+        - field_name: manifest_hash      # sha256 of manifest.json bytes; files stay on disk
+          field_type: string
+          nullable: true
+        - field_name: run_by
+          field_type: string
+          nullable: true
+        - field_name: host
+          field_type: string
+          nullable: true
+        - field_name: error_message      # command-level failure, no node results
+          field_type: string
+          nullable: true
+
+  dbt_nodes:
+    node:
+      primary_key: [project, unique_id]
+      foreign_keys:
+        - columns: [project]
+          references: project(project)
+      attributes:
+        - field_name: project            # manifest metadata.project_name
+          field_type: string
+        - field_name: unique_id          # e.g. model.jaffle_shop.orders
+          field_type: string
+        - field_name: resource_type
+          field_type: string
+          enforced_by: db                # the loader only stores these types
+          possible_values:
+            - model
+            - source
+            - snapshot
+            - seed
+            - exposure
+            - test
+            - unit_test
+        - field_name: package_name
+          field_type: string
+        - field_name: name
+          field_type: string
+        - field_name: checksum           # current definition; history in node_version
+          field_type: string
+          nullable: true                 # sources & exposures have none
+        - field_name: first_seen_at
+          field_type: timestamp
+        - field_name: last_seen_at       # last manifest this node appeared in
+          field_type: timestamp
+        - field_name: removed_at         # set when a manifest no longer has it
+          field_type: timestamp
+          nullable: true
+
+    node_version:                        # every checksum seen in any manifest
+      primary_key: [project, unique_id, checksum]
+      foreign_keys:
+        - columns: [project, unique_id]
+          references: node(project, unique_id)
+      attributes:
+        - field_name: project
+          field_type: string
+        - field_name: unique_id
+          field_type: string
+        - field_name: checksum
+          field_type: string
+        - field_name: first_seen_at
+          field_type: timestamp
+        - field_name: last_seen_at       # bumped if a node reverts to this checksum
+          field_type: timestamp
+
+    node_edge:                           # direct deps, from manifest parent_map
+      primary_key: [project, parent_id, child_id]
+      foreign_keys:
+        - columns: [project, parent_id]
+          references: node(project, unique_id)
+        - columns: [project, child_id]
+          references: node(project, unique_id)
+      indexes:
+        - columns: [project, child_id]             # upstream lookups
+      attributes:
+        - field_name: project
+          field_type: string
+        - field_name: parent_id          # unique_id of the upstream node
+          field_type: string
+        - field_name: child_id           # unique_id of the downstream node
+          field_type: string
+        - field_name: first_seen_at
+          field_type: timestamp
+        - field_name: last_seen_at
+          field_type: timestamp
+        - field_name: removed_at
+          field_type: timestamp
+          nullable: true
+
+    node_result:                         # one per node per invocation
+      primary_key: [invocation_id, project, unique_id]
+      foreign_keys:
+        - columns: [invocation_id]
+          references: invocation(invocation_id)
+        - columns: [project, unique_id]
+          references: node(project, unique_id)
+      indexes:
+        - columns: [project, unique_id, completed_at]   # node run history
+      attributes:
+        - field_name: invocation_id
+          field_type: string
+        - field_name: project
+          field_type: string
+        - field_name: unique_id
+          field_type: string
+        - field_name: status             # raw dbt status
+          field_type: string
+          enforced_by: app
+          possible_values:
+            - success
+            - error
+            - skipped
+            - no-op
+            - partial success
+            - pass
+            - fail
+            - warn
+            - runtime error              # source freshness
+        - field_name: checksum           # node checksum when it ran (staleness)
+          field_type: string
+          nullable: true
+        - field_name: started_at
+          field_type: timestamp
+          nullable: true                 # skipped nodes never start
+        - field_name: completed_at
+          field_type: timestamp
+          nullable: true
+        - field_name: execution_time
+          field_type: float
+        - field_name: thread_id
+          field_type: string
+          nullable: true
+        - field_name: message
+          field_type: string
+          nullable: true
+        - field_name: failures           # tests: failing row count
+          field_type: integer
+          nullable: true
+        - field_name: rows_affected      # adapter_response.rows_affected
+          field_type: integer
+          nullable: true
+        - field_name: adapter_response
+          field_type: json
+          nullable: true
+
+  dbtx_actions:
+    report:                              # current meta.dbtx.report of an exposure
+      primary_key: [project, exposure_id]
+      foreign_keys:
+        - columns: [project, exposure_id]
+          references: node(project, unique_id)
+      attributes:
+        - field_name: project
+          field_type: string
+        - field_name: exposure_id
+          field_type: string
+        - field_name: relation           # resolved relation the report queries
+          field_type: string
+        - field_name: formats
+          field_type: json
+        - field_name: template           # template name or template_path
+          field_type: string
+          nullable: true
+        - field_name: config             # full ReportConfig
+          field_type: json
+        - field_name: config_hash        # exposures have no dbt checksum
+          field_type: string
+        - field_name: first_seen_at
+          field_type: timestamp
+        - field_name: last_seen_at
+          field_type: timestamp
+        - field_name: removed_at
+          field_type: timestamp
+          nullable: true
+
+    report_render:                       # one per report per invocation
+      primary_key: [invocation_id, project, exposure_id]
+      foreign_keys:
+        - columns: [invocation_id]
+          references: invocation(invocation_id)
+        - columns: [project, exposure_id]
+          references: report(project, exposure_id)
+      indexes:
+        - columns: [project, exposure_id, completed_at]   # latest render per report
+      attributes:
+        - field_name: invocation_id
+          field_type: string
+        - field_name: project
+          field_type: string
+        - field_name: exposure_id
+          field_type: string
+        - field_name: config_hash        # config this render used
+          field_type: string
+        - field_name: status
+          field_type: string
+          enforced_by: db
+          possible_values:
+            - pending
+            - running
+            - rendered
+            - skipped
+            - error
+        - field_name: detail             # skip reason / exception text
+          field_type: string
+          nullable: true
+        - field_name: paths              # rendered files on disk, one per format
+          field_type: json
+          nullable: true
+        - field_name: started_at
+          field_type: timestamp
+          nullable: true
+        - field_name: completed_at
+          field_type: timestamp
+          nullable: true
