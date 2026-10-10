@@ -3,8 +3,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import dbt.adapters.factory
+from dbt.cli.main import cli as dbt_cli
 
-from dbtx.runner import OutputPaths, explicit_params, gate_tests, params_for, query_and_render
+from dbtx.runner import (
+    OutputPaths,
+    argv_for,
+    explicit_params,
+    gate_tests,
+    query_and_render,
+    usage_error,
+)
 from tests.conftest import EXAMPLE_PROJECT
 
 
@@ -26,10 +34,55 @@ def test_explicit_params_ignores_environment_variables(monkeypatch):
     assert explicit_params("build", ["-s", "customers"]) == {"select": ("customers",)}
 
 
-def test_params_for_drops_options_the_command_does_not_accept():
+def test_argv_for_drops_options_the_command_does_not_accept():
     params = {"select": ("x",), "full_refresh": True, "vars": {"a": 1}, "target": "dev"}
-    assert params_for("list", params) == {"select": ("x",), "vars": {"a": 1}, "target": "dev"}
-    assert params_for("parse", params) == {"vars": {"a": 1}, "target": "dev"}
+    assert argv_for("list", params) == [
+        "--select", "x", "--vars", "{a: 1}", "--target", "dev",
+    ]
+    # ls takes no --full-refresh, and parse takes neither that nor --select.
+    assert argv_for("parse", params) == ["--vars", "{a: 1}", "--target", "dev"]
+
+
+def test_argv_for_repeats_multi_options_and_negates_flags():
+    params = {"select": ("a", "b"), "exclude": ("c",), "use_colors": False, "threads": 8}
+    assert argv_for("build", params) == [
+        "--select", "a", "--select", "b", "--exclude", "c", "--no-use-colors", "--threads", "8",
+    ]
+
+
+def test_argv_for_omits_a_flag_that_has_no_negation():
+    assert argv_for("build", {"full_refresh": True}) == ["--full-refresh"]
+    assert argv_for("build", {"full_refresh": False}) == []
+
+
+def test_argv_for_round_trips_through_dbts_own_parser():
+    """The tokens must parse back to the params they came from -- `--vars` especially,
+    which has to stay a single argv token (flow style), not block YAML."""
+    args = [
+        "--select", "+beverage_leaderboard",
+        "--project-dir", str(EXAMPLE_PROJECT),
+        "--profiles-dir", str(EXAMPLE_PROJECT),
+        "--vars", "{job_id: test123, n: 3, nested: {a: [1, 2]}}",
+        "--threads", "2",
+    ]
+    params = explicit_params("build", args)
+    ctx = dbt_cli.commands["build"].make_context(
+        "build", argv_for("build", params), resilient_parsing=True
+    )
+    assert {k: ctx.params[k] for k in params} == params
+
+
+def test_usage_error_names_the_option_the_user_got_wrong():
+    """A resilient parse drops a rejected option, so the failure would otherwise be
+    reported against that option's default instead of the value given."""
+    problem = usage_error("build", ["--select", "x", "--profiles-dir", "does/not/exist"])
+    assert problem is not None
+    assert "--profiles-dir" in problem and "does/not/exist" in problem
+
+
+def test_usage_error_is_none_for_a_usable_invocation():
+    args = ["--select", "x", "--project-dir", str(EXAMPLE_PROJECT), "--profiles-dir", str(EXAMPLE_PROJECT)]
+    assert usage_error("build", args) is None
 
 
 def test_gate_tests_are_tests_on_direct_parents_within_the_run(manifest, reports):
