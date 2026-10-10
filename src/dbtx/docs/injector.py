@@ -27,7 +27,7 @@ class InjectionError(Exception):
     """Raised when the docs HTML cannot be instrumented."""
 
 
-def _asset_source() -> Path:
+def asset_source() -> Path:
     return Path(__file__).parent / "assets" / ASSET_FILENAME
 
 
@@ -83,7 +83,7 @@ def install(docs_loc: Path) -> tuple[Path, Path]:
             f"{index_html} looks like `--static` output, which inlines its data; "
             "the overlay needs the default docs build that fetches manifest.json")
 
-    source = _asset_source().read_text(encoding="utf-8")
+    source = asset_source().read_text(encoding="utf-8")
     asset_dest = docs_loc / ASSET_FILENAME
     asset_dest.write_text(source, encoding="utf-8")
 

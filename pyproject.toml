@@ -10,6 +10,12 @@ dependencies = [
     "pydantic>=2",
 ]
 
+[project.optional-dependencies]
+serve = [
+    "uvicorn>=0.30,<1",
+    "starlette>=0.37,<1",
+]
+
 [project.scripts]
 dbtx = "dbtx.cli:main"
 
@@ -17,6 +23,8 @@ dbtx = "dbtx.cli:main"
 dev = [
     "dbt-duckdb>=1.9",
     "pytest>=8",
+    "httpx>=0.27",
+    "dbtx[serve]",
 ]
 
 [build-system]
@@ -28,4 +36,7 @@ packages = ["src/dbtx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: builds the example project with dbt-duckdb (slower)"]
+markers = [
+    "integration: builds the example project with dbt-duckdb (slower)",
+    "server: boots a real uvicorn server on a loopback socket",
+]
