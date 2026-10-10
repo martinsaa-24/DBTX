@@ -1,7 +1,7 @@
 import csv
 import re
 
-from tests.integration.conftest import NO_SEEDS
+from tests.live.conftest import NO_SEEDS
 
 ALL_REPORT_FILES = {
     "store_revenue_monthly.html",

@@ -8,12 +8,16 @@ dependencies = [
     "dbt-core>=1.12,<2",
     "jinja2>=3.1",
     "pydantic>=2",
+    "sqlalchemy>=2.0.44,<3",
 ]
 
 [project.optional-dependencies]
 serve = [
     "uvicorn>=0.30,<1",
     "starlette>=0.37,<1",
+]
+postgres = [
+    "psycopg[binary]>=3.1,<4",
 ]
 
 [project.scripts]
@@ -36,7 +40,10 @@ packages = ["src/dbtx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Each test's tmp_path directory structure is deleted after the run; only failed
+# tests' directories are kept, for debugging.
+tmp_path_retention_policy = "failed"
 markers = [
-    "integration: builds the example project with dbt-duckdb (slower)",
+    "live: runs real dbt or a real server process (slower)",
     "server: boots a real uvicorn server on a loopback socket",
 ]

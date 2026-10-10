@@ -13,7 +13,7 @@ import pytest
 from dbtx.cli import main
 from tests.conftest import EXAMPLE_PROJECT
 
-INTEGRATION_DIR = Path(__file__).parent
+LIVE_DIR = Path(__file__).parent
 
 # dbt's anonymous usage tracking makes network calls on every invocation (~0.4s each,
 # and dbtx makes three per build). Set before any dbt call, and inherited by subprocesses.
@@ -25,8 +25,8 @@ NO_SEEDS = ("--exclude-resource-type", "seed")
 
 def pytest_collection_modifyitems(items):
     for item in items:
-        if INTEGRATION_DIR in item.path.parents:
-            item.add_marker(pytest.mark.integration)
+        if LIVE_DIR in item.path.parents:
+            item.add_marker(pytest.mark.live)
 
 
 @contextmanager

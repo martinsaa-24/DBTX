@@ -7,13 +7,18 @@ The rules for *writing* tests (red -> green TDD, test fixtures, independence) ar
 ## Running the tests
 
 ```console
-pytest -m "not integration"   # fast: unit tests, no warehouse, no dbt parse
+pytest -m "not live"          # fast: unit tests, no warehouse, no dbt parse
 pytest -m server              # boots the docs server on a loopback socket
 pytest                        # everything, including end-to-end builds of the example project
 ```
 
-Postgres-backed tests (from the database phases on) skip unless
-`DBTX_TEST_POSTGRES_URL` is set.
+Two markers say what a test needs that the plain suite does not have:
+
+- `live`: runs real dbt or a real server process. Every test under `tests/live/`.
+- `postgres`: needs a real Postgres database (from the database phases on). These are
+  unit tests by structure and skip unless `DBTX_TEST_POSTGRES_URL` is set.
+
+They combine: `pytest -m "not live and not postgres"` is the fastest run.
 
 ## Layout
 
@@ -26,7 +31,7 @@ tests/
   unit/
     conftest.py            # fixtures for unit tests (env, layouts, fake dbt runner)
     test_<module>.py       # one file per source module, or per functional group
-  integration/
+  live/
     conftest.py            # builds the example project once; per-test private copies
     test_<command>.py      # one file per user-facing command or workflow
 ```
@@ -74,13 +79,13 @@ Two existing files are organized by feature rather than by module:
 Some modules have no file of their own and are covered through the module that drives
 them: `docs/catalog.py`, `docs/patch.py` and `docs/injector.py` through
 `test_docs_sidecar.py` and `test_docs_exposure_reports.py`, and `cli.py` through
-`test_cli_config.py`, `test_docs_server_cli.py` and the integration tests. A change to
+`test_cli_config.py`, `test_docs_server_cli.py` and the live tests. A change to
 one of these modules goes in the file that already exercises it. Give a module its own
 file once it has behavior worth proving on its own.
 
-### Integration tests: by user-facing command or workflow
+### Live tests: by user-facing command or workflow
 
-Integration tests run `dbtx` end to end on throwaway copies of `examples/jaffle_shop`,
+Live tests run `dbtx` for real, end to end, on throwaway copies of `examples/jaffle_shop`,
 with dbt-duckdb as the warehouse. They are organized by **what a user runs**, not by
 module:
 
@@ -91,8 +96,8 @@ module:
 | `test_docs_server_boot.py` | the docs server under real uvicorn (also marked `server`) |
 | `test_frozen_manifest.py` | `tests/fixtures/manifest.json` still matches the example project |
 
-Every test under `tests/integration/` is marked `integration` automatically by
-`tests/integration/conftest.py`, so `pytest -m "not integration"` skips the slow tier.
+Every test under `tests/live/` is marked `live` automatically by
+`tests/live/conftest.py`, so `pytest -m "not live"` skips the slow tier.
 
 ## Where test fixtures live
 
@@ -103,7 +108,7 @@ higher:
 |---|---|
 | `tests/conftest.py` | `manifest` (a deep copy of the frozen manifest per test, safe to mutate), `templates`, `reports` |
 | `tests/unit/conftest.py` | `clean_env` (autouse: clears `DBTX_*`, `DBT_PROJECT_DIR`, `DBT_PROFILES_DIR`), `enforce`, `config_sample()`, `layout` (a `LayoutBuilder` over `tmp_path`), `platform`, `lone_project`, `fake_dbt` |
-| `tests/integration/conftest.py` | `built_project`, `project` |
+| `tests/live/conftest.py` | `built_project`, `project` |
 | a test file | fixtures only that file uses (for example `psycopg_missing` in `test_config.py`) |
 
 **Checked-in data goes in `tests/fixtures/`**, grouped by what it feeds (`config/` for
@@ -114,7 +119,7 @@ them in place.
 **The one shared, slow fixture.** Building the example project takes seconds, so
 `built_project` runs one `dbtx build` per session and is **read-only**. A test that
 modifies anything uses `project`, which gives it a private copy (warehouse included) in
-its own `tmp_path`. This is how integration tests stay independent while sharing one
+its own `tmp_path`. This is how live tests stay independent while sharing one
 build.
 
 `manifest.json` is frozen from the example project. After changing
@@ -124,7 +129,7 @@ build.
 ## Where a new test goes
 
 1. **Is it end to end** (runs `dbtx` against a real project and warehouse)? Then it
-   goes in `tests/integration/test_<command>.py`, using `project`.
+   goes in `tests/live/test_<command>.py`, using `project`.
 2. **Otherwise it is a unit test.** Find the source module it proves:
    - the module has a test file: add it there, under the matching behavior header
    - the behavior is a new functional group in a large module: start

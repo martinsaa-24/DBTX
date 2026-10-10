@@ -5,7 +5,17 @@
     dbtx templates [--project-dir DIR]                 list the templates a project can use
     dbtx docs patch|install|status [options...]        overlay run data onto generated dbt docs
     dbtx docs serve --docs-loc DIR [options...]        serve the generated docs over uvicorn
+    dbtx config                                        show the resolved dbtx configuration
     dbtx <any other dbt command> [options...]           passed straight through to dbt
+
+Every command first loads and validates dbtx's configuration (dbtx.config); a problem
+exits 2 before dbt starts. dbtx's own flags, accepted anywhere on the command line:
+
+    --platform-dir DIR       run in platform mode with DIR as the platform root
+    --standalone-mode        run without the platform (no config file, no database)
+    --config-file PATH       use this config file instead of <platform root>/dbtx.conf
+    --db-backend enabled|disabled
+    --db-uri URI
 """
 
 from __future__ import annotations
@@ -15,6 +25,7 @@ from pathlib import Path
 
 from dbt.cli.main import dbtRunner
 
+from dbtx.config import ConfigError, DbtxConfig, load_config
 from dbtx.docs.command import run as docs_command
 from dbtx.runner import build, compile_project, exit_code
 from dbtx.templates import TemplateError, TemplateRegistry
@@ -24,16 +35,64 @@ from dbtx.templates import TemplateError, TemplateRegistry
 # it replaces dbt's single-threaded, cwd-mutating static server.
 DOCS_SUBCOMMANDS = {"patch", "install", "status", "serve"}
 
+# Printed by `dbtx`, `dbtx -h` and `dbtx --help`, ahead of dbt's own help.
+USAGE = """\
+usage: dbtx <command> [options...]
+
+dbtx commands:
+  dbtx build [--no-reports] [dbt build options...]     build + render reports in one run
+  dbtx compile [--no-reports] [dbt compile options...] compile, validate reports, write their SQL
+  dbtx templates [--project-dir DIR]                   list the templates a project can use
+  dbtx docs patch|install|status [options...]          overlay run data onto generated dbt docs
+  dbtx docs serve --docs-loc DIR [options...]          serve the generated docs over uvicorn
+  dbtx config                                          show the resolved dbtx configuration
+  dbtx <any other dbt command> [options...]            passed straight through to dbt
+
+dbtx options, accepted anywhere on the command line:
+  --platform-dir DIR              run in platform mode with DIR as the platform root
+  --standalone-mode               run without the platform (no config file, no database)
+  --config-file PATH              use this config file instead of <platform root>/dbtx.conf
+  --db-backend enabled|disabled   turn the database backend on or off
+  --db-uri URI                    the database to use
+
+`dbtx docs --help` lists the docs subcommands. dbt's help follows.
+
+"""
+
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+
+    # Configuration is checked before anything else, dbt included (plan 6.1).
+    # Messages go to stderr so they never mix into output another tool parses,
+    # such as `dbtx ls --output json`.
+    try:
+        config = load_config(args)
+    except ConfigError as exc:
+        print(f"dbtx: {exc}", file=sys.stderr)
+        return 2
+    for warning in config.warnings:
+        print(f"dbtx: warning: {warning}", file=sys.stderr)
+    args = list(config.argv)
+
+    # Bare `dbtx`, or asking it for help, prints dbtx's own usage first; dbt's
+    # help follows so the commands passed through to dbt are still listed.
+    if not args or args[0] in ("-h", "--help"):
+        print(USAGE, end="")
+        return exit_code(dbtRunner().invoke(["--help"]))
 
     commands = {"build": build, "compile": compile_project}
     if args and args[0] in commands and not {"-h", "--help"} & set(args):
         rest = args[1:]
         reports_enabled = "--no-reports" not in rest
         rest = [a for a in rest if a != "--no-reports"]
-        return commands[args[0]](rest, reports_enabled=reports_enabled)
+        return commands[args[0]](rest, reports_enabled=reports_enabled, config=config)
+
+    if args and args[0] == "config":
+        return show_config(config)
+
+    if args and args[0] == "db":
+        return db_command(config, args[1:])
 
     if args and args[0] == "templates":
         return list_templates(args[1:])
@@ -48,6 +107,51 @@ def main(argv: list[str] | None = None) -> int:
             return docs_command(args[1:])
 
     return exit_code(dbtRunner().invoke(args))
+
+
+def show_config(config: DbtxConfig) -> int:
+    """`dbtx config`: the resolved configuration and where each value came from."""
+    rows: list[tuple[str, str]] = []
+    rows.append(("mode", f"{config.mode} ({config.mode_reason})"))
+    rows.append(("platform root", str(config.platform_root) if config.platform_root else "none"))
+    rows.append(("project dir", str(config.project_dir) if config.project_dir else "none"))
+    if config.config_file is not None:
+        rows.append(("config file", f"{config.config_file} ({config.config_file_reason})"))
+    else:
+        rows.append(("config file", config.config_file_reason))
+
+    if config.is_platform:
+        assert config.db_backend is not None and config.db_uri is not None
+        rows.append(("DB_BACKEND", f"{config.db_backend.value}  [{config.db_backend.source}]"))
+        if config.db_uri.value is None:
+            rows.append(("DB_URI", "not set"))
+        else:
+            rows.append(("DB_URI", f"{config.masked_db_uri()}  [{config.db_uri.source}]"))
+    else:
+        rows.append(("DB_BACKEND", "n/a (standalone mode has no database)"))
+        rows.append(("DB_URI", "n/a (standalone mode has no database)"))
+
+    for name in config.ignored_env_vars:
+        rows.append(("ignored", f"{name} (standalone)"))
+
+    width = max(len(label) for label, _ in rows)
+    print("dbtx config")
+    for label, value in rows:
+        print(f"  {label:<{width}}  {value}")
+    return 0
+
+
+def db_command(config: DbtxConfig, args: list[str]) -> int:
+    """`dbtx db ...`. Every subcommand needs platform mode; none is built yet."""
+    if not config.is_platform:
+        print("dbtx: database operations require platform mode", file=sys.stderr)
+        return 2
+    subcommand = args[0] if args else ""
+    print(
+        f"dbtx: `dbtx db {subcommand}` is not available yet (planned for a later phase)",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def list_templates(args: list[str]) -> int:

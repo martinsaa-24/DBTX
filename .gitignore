@@ -8,3 +8,4 @@ examples/*/dbt_packages/
 examples/*/*.duckdb
 examples/*/*.duckdb.wal
 examples/*/.user.yml
+examples/.dbtx/

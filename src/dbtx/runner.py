@@ -7,7 +7,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 import yaml
@@ -24,6 +24,9 @@ from dbt_common.events.types import Note
 from dbtx.reports import Report, ReportDefinitionError, discover_reports, render, write_sql
 from dbtx.scheduler import ReportScheduler
 from dbtx.templates import TemplateEngine, TemplateError, TemplateRegistry
+
+if TYPE_CHECKING:
+    from dbtx.config import DbtxConfig
 
 
 def exit_code(result: dbtRunnerResult) -> int:
@@ -230,7 +233,11 @@ def prepare(command: str, args: list[str], params: dict[str, Any]) -> Prepared:
     return Prepared(params, manifest, templates, reports, paths)
 
 
-def build(args: list[str], reports_enabled: bool = True) -> int:
+def build(
+    args: list[str], reports_enabled: bool = True, config: DbtxConfig | None = None
+) -> int:
+    # `config` is accepted now so cli.main can pass it; nothing reads it until the
+    # store records runs (plan Phase 5).
     if not reports_enabled:
         return exit_code(dbtRunner().invoke(["build", *args]))
     params = explicit_params("build", args)
@@ -264,7 +271,9 @@ def build(args: list[str], reports_enabled: bool = True) -> int:
     return code if code or not report_errors else 1
 
 
-def compile_project(args: list[str], reports_enabled: bool = True) -> int:
+def compile_project(
+    args: list[str], reports_enabled: bool = True, config: DbtxConfig | None = None
+) -> int:
     """`dbt compile`, plus validation of every report and SQL for the selected ones."""
     params = explicit_params("compile", args)
     if not reports_enabled or "inline" in params:

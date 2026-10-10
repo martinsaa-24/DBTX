@@ -335,6 +335,71 @@ it -- so serving is not something that can cost you the overlay.
 
 ## Usage
 
+### Configuration
+
+Every `dbtx` command first loads and checks its configuration. A problem exits with
+code 2, and a message naming the setting and where it came from, before dbt starts.
+
+**Platform mode (the default).** dbtx runs as a platform holding several dbt projects.
+Each project is a folder directly under one platform root, and the root holds the
+shared `dbtx.conf`:
+
+```
+/srv/dbtx/            <- platform root
+  dbtx.conf
+  jaffle-shop/        <- dbt_project.yml, profiles.yml, ...
+  jaffle-shop-2/
+```
+
+```console
+cd /srv/dbtx && dbtx build --project-dir jaffle-shop       # the cwd holds dbtx.conf
+dbtx build --platform-dir /srv/dbtx --project-dir jaffle-shop
+dbtx config                                                 # what was resolved, and from where
+```
+
+- The platform root is `--platform-dir`, or else the current directory if it holds
+  `dbtx.conf` and is not itself a dbt project. dbtx never searches parent directories.
+- A relative `--project-dir` is relative to the platform root, and the project must be
+  a direct child of it.
+- **Profiles are scoped per project:** dbtx always passes the project folder to dbt as
+  `--profiles-dir`, so each project's own `profiles.yml` is used, never `~/.dbt`. A
+  `--profiles-dir` or `DBT_PROFILES_DIR` pointing anywhere else is an error, so hosts
+  that export `DBT_PROFILES_DIR` must unset it for platform runs. `--profile` and
+  `--target` work as usual.
+- Each project on a platform needs a unique `name:` in `dbt_project.yml`; dbtx warns
+  when two folders declare the same one.
+
+**Standalone mode.** `--standalone-mode` runs one project without the platform: no
+config file, no database, no platform checks, and dbt's default project and profile
+lookup. Database flags (`--db-uri`, `--db-backend`, `--config-file`) contradict it and
+exit 2. `DBTX_DB_*` environment variables are ignored.
+
+```console
+cd jaffle-shop && dbtx build --standalone-mode
+```
+
+**Options (platform mode).** Highest precedence first: CLI flag, then the config file,
+then the environment. `.env` files are never read.
+
+| Option | CLI | `dbtx.conf` | Environment | Default |
+|---|---|---|---|---|
+| Database backend | `--db-backend enabled\|disabled` | `DB_BACKEND=` | `DBTX_DB_BACKEND` | `enabled` |
+| Database URI | `--db-uri URI` | `DB_URI=` | `DBTX_DB_URI` | none |
+| Config file | `--config-file PATH` | | `DBTX_CONFIG_FILE` | `<platform root>/dbtx.conf` |
+
+- `dbtx.conf` is strict `KEY=VALUE`: `#` comment lines and quoted values are allowed;
+  unknown or duplicate keys, `export` and `${...}` are errors. See
+  [examples/dbtx.conf.example](examples/dbtx.conf.example). A working copy,
+  [examples/dbtx.conf](examples/dbtx.conf), makes `examples/` a platform root: run
+  `dbtx build --project-dir jaffle_shop` from there.
+- `DB_URI` is a SQLAlchemy URL: `sqlite:///path.db` or
+  `postgresql+psycopg://user@host:5432/dbname` (needs `pip install 'dbtx[postgres]'`).
+  A relative SQLite path is relative to the config file's directory. Leave the password
+  out of the URI to have libpq read it from `~/.pgpass` or `PGPASSWORD`.
+- The database backend does not record anything yet. Until it does, a missing
+  `DB_URI`, a duplicate project name, and running outside a platform without
+  `--standalone-mode` are warnings, not errors.
+
 ### Using DBTX Exposures
 ```console
 dbtx build                               # everything, with reports
@@ -484,7 +549,7 @@ python scripts/generate_seeds.py
 ### Tests
 
 ```console
-pytest -m "not integration"   # ~1s:  unit tests against the frozen manifest
+pytest -m "not live"          # ~1s:  unit tests against the frozen manifest
 pytest                        # ~80s: also builds the example project in temp copies
 ```
 
@@ -497,7 +562,7 @@ pytest                        # ~80s: also builds the example project in temp co
   detection and the HTML injection. `test_docs_server.py` drives the server through
   Starlette's `TestClient`, so routing, cache policy and docroot escapes are covered
   in-process without binding a port; `test_docs_server_cli.py` covers its option parsing.
-- **Integration tests** (`tests/integration`) run `dbtx` end to end on throwaway copies of
+- **Live tests** (`tests/live`) run `dbtx` for real, end to end, on throwaway copies of
   the example project. They cover selection, failing tests, failing models, report errors
   and passthrough. `test_docs_server_boot.py` is also marked `server` and needs no
   warehouse -- it boots the docs server on a loopback socket (`pytest -m server`).
@@ -510,6 +575,8 @@ pytest                        # ~80s: also builds the example project in temp co
 ## Requirements
 
 dbt-core 1.12+ (exposures run as nodes in `dbt build`), Python 3.10+.
+
+A Postgres `DB_URI` needs the `postgres` extra -- psycopg 3 (`pip install 'dbtx[postgres]'`).
 
 `dbtx docs serve` additionally needs the `serve` extra -- uvicorn and starlette
 (`pip install 'dbtx[serve]'`). Everything else, including `dbtx docs patch`, `install` and

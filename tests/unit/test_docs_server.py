@@ -3,7 +3,7 @@
 Exercised through Starlette's TestClient, which drives the ASGI app in-process.
 That keeps every behaviour below -- routing, headers, caching -- testable
 without binding a port; the real uvicorn boot is covered separately in
-tests/integration/test_docs_server_boot.py.
+tests/live/test_docs_server_boot.py.
 """
 
 from __future__ import annotations
@@ -232,7 +232,7 @@ def test_overlay_asset_in_docs_loc_wins(docs_loc: Path):
 
 # --- serve() wiring ---------------------------------------------------------
 # The blocking run() is stubbed out here; the real boot is covered in
-# tests/integration/test_docs_server_boot.py.
+# tests/live/test_docs_server_boot.py.
 
 @pytest.fixture
 def stub_run(monkeypatch) -> None:

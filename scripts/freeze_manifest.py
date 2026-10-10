@@ -5,7 +5,7 @@
 Run this after changing the example project. The frozen file is scrubbed of anything
 machine- or run-specific (absolute paths, timestamps, user ids, Windows separators) and of
 dbt's built-in macros, so it is small, diffable and identical on every machine.
-`tests/integration/test_frozen_manifest.py` fails when it drifts from the project.
+`tests/live/test_frozen_manifest.py` fails when it drifts from the project.
 """
 
 from __future__ import annotations

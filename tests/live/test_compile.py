@@ -1,4 +1,4 @@
-from tests.integration.test_build import ALL_REPORT_SQL
+from tests.live.test_build import ALL_REPORT_SQL
 
 
 def test_compile_writes_report_sql_to_compiled_only(project, capsys):

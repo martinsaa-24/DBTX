@@ -990,7 +990,7 @@ Each phase ends green on `pytest` for both backends (Postgres tests skip unless
     continues in standalone mode
 
   Otherwise every existing `dbtx build` (single projects run from their own folder,
-  including the integration tests), and every platform project that happens to share
+  including the live tests), and every platform project that happens to share
   a dbt name, would fail with exit 2 for a backend that does nothing yet. The
   flag is a module constant (`config.ENFORCE_DB_REQUIREMENTS = False`), patched to
   `True` in tests. It is deliberately **not** an env var or config option, so it does
@@ -1172,13 +1172,13 @@ counts and no errors.
 - Turn on the `DB_URI` requirement (6.6 step 6) that Phase 0 left behind a test flag.
   This is the release where `dbtx build` with no configuration starts exiting 2.
   Changelog and README must say so, and must point at `--db-backend disabled`.
-- Flip `ENFORCE_DB_REQUIREMENTS` on (then delete it). The existing integration tests
+- Flip `ENFORCE_DB_REQUIREMENTS` on (then delete it). The existing live tests
   run from inside the project folder, so `Project.dbtx` passes `--standalone-mode`;
   that also proves standalone runs never touch a database. The new store tests use
   the platform fixture.
 - **Tests:** unit tests on the scheduler observer (fires for every transition, outside
   the lock); a recorder whose store raises leaves `build`'s exit code unchanged (D5);
-  integration test (`@pytest.mark.integration`): `dbtx build` on a **platform fixture**
+  live test (`@pytest.mark.live`): `dbtx build` on a **platform fixture**
   (`examples/jaffle_shop` copied under a tmp platform root whose `dbtx.conf` sets
   `DB_URI=sqlite:///.dbtx/dbtx.db`) → one invocation (`result=success`), node
   results for every built node, three `report_render` rows `rendered` with `paths`, and
@@ -1217,8 +1217,10 @@ Not part of this delivery, listed so the schema choices are checked against them
 
 - `tests/unit/store/conftest.py` (see `docs/contributing/tests.md`): a `store` fixture parametrised over backends. Postgres is
   selected by `DBTX_TEST_POSTGRES_URL` and creates and drops a uniquely named schema per
-  test session, so runs can share one server. Marker `postgres` is added to
-  `pyproject.toml` alongside `integration` and `server`.
+  test session, so runs can share one server. Marker `postgres` ("needs a real
+  database") is added to `pyproject.toml` alongside `live` ("runs real dbt or a real
+  server process") and `server`. They are independent: store tests are unit tests
+  marked `postgres`, not `live`, and `-m "not live and not postgres"` is the fastest run.
 - Strict mode (`DBTX_DB_STRICT=1`) is set autouse for the whole suite.
 - Frozen `run_results.json` and `sources.json` fixtures next to
   `tests/fixtures/manifest.json`, produced by a small extension to
@@ -1226,7 +1228,7 @@ Not part of this delivery, listed so the schema choices are checked against them
   project has no source freshness config, so the `sources.json` fixture is
   hand-trimmed to a passing entry and a `runtime error` entry.
 - CI:
-  - a Postgres service container job running `pytest -m "not integration"` with
+  - a Postgres service container job running `pytest -m "not live"` with
     `DBTX_TEST_POSTGRES_URL` set
   - a Python matrix of 3.10 and 3.14 (the D10 floor and the dev venv)
 
@@ -1257,7 +1259,7 @@ Not part of this delivery, listed so the schema choices are checked against them
 | Risk | Mitigation |
 |---|---|
 | SQLite write contention from dbt threads during report renders | WAL + `BEGIN IMMEDIATE` + `busy_timeout`. Writes are tiny. Covered by the Phase 2 concurrency test. |
-| dbt internals used by the recorder change between minor versions: `MainReportVersion` being first, `ConcurrencyLine.target_name`, `get_invocation_started_at`, the artifact serialisers, and runnable tasks rewriting `manifest.json` at the end | All of them are isolated in `recorder.py` / `loaders/run_results.py`, checked against 1.12.5. The Phase 5 integration test asserts each one, so a dbt bump that breaks one fails CI rather than silently storing wrong data. |
+| dbt internals used by the recorder change between minor versions: `MainReportVersion` being first, `ConcurrencyLine.target_name`, `get_invocation_started_at`, the artifact serialisers, and runnable tasks rewriting `manifest.json` at the end | All of them are isolated in `recorder.py` / `loaders/run_results.py`, checked against 1.12.5. The Phase 5 live test asserts each one, so a dbt bump that breaks one fails CI rather than silently storing wrong data. |
 | Large manifests make every build slower | Chunked set-based upserts, run once at the end, not per event. The `manifest_hash` short-circuit was dropped (5.1 step 5). If profiling shows a problem, add a content hash that ignores `metadata`. |
 | Schema drift between YAML, models and migrations | Parity test (YAML ↔ models) plus the migration test (migrations ↔ models). |
 
