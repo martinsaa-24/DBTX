@@ -54,14 +54,13 @@ ENV_DB_URI = "DBTX_DB_URI"
 ENV_CONFIG_FILE = "DBTX_CONFIG_FILE"
 
 # Every DBTX_* name dbtx knows about. Any other DBTX_* variable gets a warning, the env
-# counterpart of the strict keys in dbtx.conf. DBTX_DB_STRICT and DBTX_TEST_POSTGRES_URL
-# are test switches, read elsewhere.
+# counterpart of the strict keys in dbtx.conf. DBTX_DB_STRICT is a test switch, read
+# elsewhere.
 KNOWN_ENV_VARS = (
     ENV_DB_BACKEND,
     ENV_DB_URI,
     ENV_CONFIG_FILE,
     "DBTX_DB_STRICT",
-    "DBTX_TEST_POSTGRES_URL",
 )
 
 DB_BACKEND_ENABLED = "enabled"

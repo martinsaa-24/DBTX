@@ -15,8 +15,15 @@ pytest                        # everything, including end-to-end builds of the e
 Two markers say what a test needs that the plain suite does not have:
 
 - `live`: runs real dbt or a real server process. Every test under `tests/live/`.
-- `postgres`: needs a real Postgres database (from the database phases on). These are
-  unit tests by structure and skip unless `DBTX_TEST_POSTGRES_URL` is set.
+- `postgres`: needs a Postgres server. These are unit tests by structure (the
+  `postgres` case of the store's `engine` fixture), and they run with no setup: the
+  session-scoped `postgres_uri` fixture starts a throwaway server from the
+  `pixeltable-pgserver` dev dependency (a maintained fork of `pgserver`; the original
+  has no wheels for Python 3.13+), once per session, and deletes it at the end. To use
+  a server of your own instead (CI, or a specific Postgres version), pass
+  `pytest --postgres-uri postgresql+psycopg://user:password@host:5432/dbname`, or set
+  `PYTEST_ADDOPTS="--postgres-uri ..."`; then no pgserver is started. A blank value
+  stops the run with a usage error. Each test gets its own schema, dropped afterwards.
 
 They combine: `pytest -m "not live and not postgres"` is the fastest run.
 
@@ -31,6 +38,9 @@ tests/
   unit/
     conftest.py            # fixtures for unit tests (env, layouts, fake dbt runner)
     test_<module>.py       # one file per source module, or per functional group
+    store/                 # dbtx/store: its own folder, because it has its own fixtures
+      conftest.py          #   the spec, an empty database per test on each backend
+      test_store_<group>.py
   live/
     conftest.py            # builds the example project once; per-test private copies
     test_<command>.py      # one file per user-facing command or workflow
@@ -106,8 +116,9 @@ higher:
 
 | Fixture file | Holds |
 |---|---|
-| `tests/conftest.py` | `manifest` (a deep copy of the frozen manifest per test, safe to mutate), `templates`, `reports` |
+| `tests/conftest.py` | the `--postgres-uri` option (registered here so pytest accepts it whatever is selected), `manifest` (a deep copy of the frozen manifest per test, safe to mutate), `templates`, `reports` |
 | `tests/unit/conftest.py` | `clean_env` (autouse: clears `DBTX_*`, `DBT_PROJECT_DIR`, `DBT_PROFILES_DIR`), `enforce`, `config_sample()`, `layout` (a `LayoutBuilder` over `tmp_path`), `platform`, `lone_project`, `fake_dbt` |
+| `tests/unit/store/conftest.py` | `spec` (the shipped `schema.yml`), `postgres_uri` (session: `--postgres-uri`, or the URI of a throwaway pgserver), `SQLITE_MEMORY_URI` / `sqlite_file_uri()`, `engine` (a new, empty database per test: `sqlite-memory`, `sqlite-file`, `postgres`) |
 | `tests/live/conftest.py` | `built_project`, `project` |
 | a test file | fixtures only that file uses (for example `psycopg_missing` in `test_config.py`) |
 
@@ -140,8 +151,21 @@ build.
    fixtures in the nearest `conftest.py`, and add sample data under `tests/fixtures/`.
    Do not add parameters to production code for it (see guidelines.md).
 
-**Planned: the database store.** `dbtx/store/` will need fixtures of its own (a backend
-fixture parametrized over SQLite and Postgres, plus engines and sessions). Its unit tests
-therefore get their own folder, `tests/unit/store/` with its own `conftest.py`, instead of
-a `test_store_` prefix. A subpackage gets a folder once it has fixtures no other test
-uses.
+**The database store.** `dbtx/store/` has fixtures of its own (an `engine` fixture
+parametrized over SQLite and Postgres), so its unit tests have their own folder,
+`tests/unit/store/` with its own `conftest.py`, instead of a flat `test_store_` file. A
+subpackage gets a folder once it has fixtures no other test uses.
+
+| Functional group | Test file |
+|---|---|
+| column types (`store/types.py`) | `test_store_types.py` |
+| spec ↔ models and enums (`store/schema.yml`, `store/models/`, `store/enums.py`) | `test_store_schema_parity.py` |
+| models on a real database: `create_all`, relationships | `test_store_models.py` |
+| the test backends themselves: every backend starts empty; `sqlite-memory` is one database across connections; `sqlite-file` is in the test's own `tmp_path`; Postgres available without setup, UTF8, own schema, non-UTC zone | `test_store_backends.py` |
+
+Database connection strings are **URIs**, named `*_uri` (as in dbtx's `DB_URI`): every
+backend fixture or helper provides one, and engines are built from it. Library names
+stay as they are (`sa.make_url`, `engine.url`).
+
+A test that uses `engine` runs once per backend. Postgres-only or SQLite-only behaviour
+skips on the other backends with `pytest.skip`, inside the test.

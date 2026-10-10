@@ -5,6 +5,7 @@ description = "A unified runner around dbt that renders configuration-driven rep
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "alembic>=1.13,<2",
     "dbt-core>=1.12,<2",
     "jinja2>=3.1",
     "pydantic>=2",
@@ -29,6 +30,7 @@ dev = [
     "pytest>=8",
     "httpx>=0.27",
     "dbtx[serve]",
+    "pixeltable-pgserver>=0.6",
 ]
 
 [build-system]
@@ -46,4 +48,5 @@ tmp_path_retention_policy = "failed"
 markers = [
     "live: runs real dbt or a real server process (slower)",
     "server: boots a real uvicorn server on a loopback socket",
+    "postgres: needs a Postgres server (a throwaway pgserver, started once per test session)",
 ]

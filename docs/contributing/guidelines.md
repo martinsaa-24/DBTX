@@ -100,9 +100,11 @@ that varies, using the test fixtures above:
     source, never by extra function parameters.
 *   **Ordering:** never depend on dict, set or directory-listing order; sort before
     comparing.
-*   **Network and services:** no network calls. Tests that need a service (for example
-    Postgres) skip unless it is explicitly configured (`DBTX_TEST_POSTGRES_URL`), so a
-    missing server never shows up as a failure.
+*   **Network and services:** no network calls. A test that needs a service starts a
+    local, throwaway one from a dev dependency (Postgres: `pixeltable-pgserver`, once
+    per test session), or uses one passed explicitly on the command line
+    (`pytest --postgres-uri ...`). It never depends on a server that happens to be
+    running on the developer's machine.
 
 ### Negative tests also prove that gates hold
 Negative tests cover more than bad input. They also prove that something which must

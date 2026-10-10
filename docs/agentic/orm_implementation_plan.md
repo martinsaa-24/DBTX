@@ -1,6 +1,6 @@
 # dbtx store: implementation plan
 
-Implements the schema in [`orm_to_implement.yml`](orm_to_implement.yml) (version 2) as a
+Implements the schema in [`src/dbtx/store/schema.yml`](../../src/dbtx/store/schema.yml) (version 2; until Phase 1 it lived at `docs/agentic/orm_to_implement.yml`) as a
 SQLAlchemy 2.x data layer with pluggable **store adapters**. SQLite and PostgreSQL are the
 two supported backends. Other dialects can be added later through the adapter registry.
 
@@ -57,7 +57,7 @@ above that floor, but distro Pythons can ship older builds.
 src/dbtx/config.py       # Phase 0: layered config loader, DbtxConfig (section 6)
 src/dbtx/store/
   __init__.py            # public API: open_store(DbtxConfig), Store
-  schema.yml             # promoted copy of docs/agentic/orm_to_implement.yml
+  schema.yml             # the spec, moved here from docs/agentic/orm_to_implement.yml (Phase 1)
   types.py               # UTCDateTime, JSONType, in_check() helper
   enums.py               # db-enforced enums + app-enforced known-value sets
   validation.py          # app-enforced checking (D9)
@@ -792,7 +792,7 @@ these rules they are different deployments: use the same folder name, or `rebind
 
 #### 6.5.5 Schema: the `project` registry (spec version 2)
 
-`orm_to_implement.yml` is now **version 2** (agreed, Q10). Changes:
+The spec (`orm_to_implement.yml`, now `src/dbtx/store/schema.yml`) is now **version 2** (agreed, Q10). Changes:
 - **New `platform.project` entity:** `project` (PK, the dbt project name), `folder`,
   `claimed_at`, `claimed_by_host`, `last_seen_at`, with an index on `folder`.
 - **FKs to `project(project)` from `invocation` and `node`.** Every other project-keyed
@@ -965,8 +965,9 @@ reported even then.
 
 ## 7. Phases
 
-Each phase ends green on `pytest` for both backends (Postgres tests skip unless
-`DBTX_TEST_POSTGRES_URL` is set) and is one reviewable commit or PR.
+Each phase ends green on `pytest` for both backends (Postgres tests use a throwaway
+pgserver instance, or the server given with `pytest --postgres-uri`) and is one
+reviewable commit or PR.
 
 ### Phase 0: Configuration
 - Add `sqlalchemy` as a dependency, for `make_url` only. No models or engines yet.
@@ -1007,7 +1008,8 @@ Each phase ends green on `pytest` for both backends (Postgres tests skip unless
     project resolution (6.5.2), so in platform mode it resolves against the root.
   - **Unknown `DBTX_*` env vars** (for example `DBTX_DB_URL`) produce a warning, the
     env counterpart of the strict file keys. Known names: the options in 6.4,
-    `DBTX_CONFIG_FILE`, `DBTX_DB_STRICT` and `DBTX_TEST_POSTGRES_URL`. A warning
+    `DBTX_CONFIG_FILE` and `DBTX_DB_STRICT` (`DBTX_TEST_POSTGRES_URL` was dropped after
+    Phase 1, when the tests began starting their own server). A warning
     rather than an error, because the environment is shared with other tools.
   - **`dbtx config` output:** human-readable, one line per item: mode, platform
     root, project dir, config file and the rule that chose it, then every option
@@ -1122,6 +1124,21 @@ test passes unchanged.
 **Done when:** `Base.metadata.create_all()` succeeds on SQLite and Postgres and the
 parity test passes.
 
+**Status: implemented (2026-10-10), uncommitted.** Progress and details are in
+[phase1_state.md](phase1_state.md). Deviations from this section:
+- the spec was **moved** (`git mv`), not copied, to `src/dbtx/store/schema.yml` (D3), so
+  there is one copy; links in this plan point at the new path
+- no hatch config change: the wheel already ships every file under `src/dbtx`
+  (checked with `uv build --wheel`)
+- `validation.py` and the autouse `DBTX_DB_STRICT=1` (D9, section 8) are deferred to
+  Phase 4, where the loaders first write app-enforced values; Phase 1 has the value
+  set (`enums.NODE_RESULT_STATUSES`) only
+- the store tests use a plain-SQLAlchemy `engine` fixture (adapters come in Phase 2);
+  on Postgres it creates a schema **per test**, not per session, so tests stay
+  independent, and sets a non-UTC session time zone to prove UTC normalisation
+- `Node.parents` / `Node.children` return `Node` objects through `node_edge` (joined on
+  `project` as well), including edges marked removed
+
 ### Phase 2: Adapters
 - `adapters/base.py`, `sqlite.py`, `postgres.py`, registry, `open_store(DbtxConfig)`.
 - **Guard G2:** the claim in the start-up transaction, the
@@ -1216,8 +1233,10 @@ Not part of this delivery, listed so the schema choices are checked against them
 ## 8. Test infrastructure
 
 - `tests/unit/store/conftest.py` (see `docs/contributing/tests.md`): a `store` fixture parametrised over backends. Postgres is
-  selected by `DBTX_TEST_POSTGRES_URL` and creates and drops a uniquely named schema per
-  test session, so runs can share one server. Marker `postgres` ("needs a real
+  the server given with `pytest --postgres-uri URI`, or else a throwaway server from
+  the `pixeltable-pgserver` dev dependency, started once per test session (added after
+  Phase 1; the command-line option replaced the `DBTX_TEST_POSTGRES_URL` variable). Each test creates and drops a uniquely named schema, so runs can share one
+  server. Marker `postgres` ("needs a real
   database") is added to `pyproject.toml` alongside `live` ("runs real dbt or a real
   server process") and `server`. They are independent: store tests are unit tests
   marked `postgres`, not `live`, and `-m "not live and not postgres"` is the fastest run.
@@ -1228,8 +1247,8 @@ Not part of this delivery, listed so the schema choices are checked against them
   project has no source freshness config, so the `sources.json` fixture is
   hand-trimmed to a passing entry and a `runtime error` entry.
 - CI:
-  - a Postgres service container job running `pytest -m "not live"` with
-    `DBTX_TEST_POSTGRES_URL` set
+  - a job running `pytest -m "not live"` (the Postgres tests start their own server, or
+    use a service container through `--postgres-uri`)
   - a Python matrix of 3.10 and 3.14 (the D10 floor and the dev venv)
 
 ---
