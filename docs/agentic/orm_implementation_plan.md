@@ -1094,6 +1094,20 @@ Each phase ends green on `pytest` for both backends (Postgres tests skip unless
 **Done when:** `dbtx config` prints resolved values with sources, and every existing
 test passes unchanged.
 
+**Status: implemented (2026-10-10), uncommitted.** Progress and details are in
+[phase0_state.md](phase0_state.md). Deviations from this section, all recorded there:
+- config errors and warnings are printed to **stderr**, so they never corrupt output
+  another tool parses (`dbtx ls --output json`)
+- project-less commands (`config`, `init`, `docs serve/patch/install/status`,
+  `db init/upgrade/status`) need no project dir in platform mode, so they work from
+  the platform root
+- platform mode rejects a command line that starts with an option (`dbtx --debug
+  build`), because the project and profiles dir cannot be scoped without the command
+- `DB_URI` accepts only the `pysqlite` and `psycopg` (3) drivers. SQLAlchemy resolved
+  to 2.1.4, where a bare `postgresql://` already means psycopg 3
+- `--db-schema` is deferred to Phase 2 with `DB_SCHEMA`
+- `dbtx db` is a stub (exit 2) until its phases
+
 ### Phase 1: Foundations
 - The promoted `schema.yml` is spec **version 2** (6.5.5), so `models/` gains a
   `platform.py` (`Project`). The parity test covers it like every other table.
@@ -1201,7 +1215,7 @@ Not part of this delivery, listed so the schema choices are checked against them
 
 ## 8. Test infrastructure
 
-- `tests/store/conftest.py`: a `store` fixture parametrised over backends. Postgres is
+- `tests/unit/store/conftest.py` (see `docs/contributing/tests.md`): a `store` fixture parametrised over backends. Postgres is
   selected by `DBTX_TEST_POSTGRES_URL` and creates and drops a uniquely named schema per
   test session, so runs can share one server. Marker `postgres` is added to
   `pyproject.toml` alongside `integration` and `server`.
