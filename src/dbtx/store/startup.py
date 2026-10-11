@@ -8,7 +8,10 @@ Gates, all required, else nothing is opened or connected to:
 Checks, in order, each a StoreError (exit 2) on failure:
 1. connect
 2. the server version floor (`adapter.check_server`)
-3. dbtx's tables exist (`dbtx db init` / `upgrade` skip this: creating them is their job)
+3. the migration revision against head (plan Phase 3): unknown → StoreError; none or
+   behind → upgraded when the adapter `upgrades_automatically` (SQLite), else a
+   StoreError naming `dbtx db init` / `upgrade`. Those two commands skip this check:
+   fixing the revision is their job
 4. for a command with a project: guards G1 + G2 in one transaction. A name another
    folder on this platform also declares (G1) runs only from the folder that holds the
    claim ("established owner wins"); otherwise the folder claims the name or confirms
@@ -22,7 +25,7 @@ from typing import TYPE_CHECKING
 import sqlalchemy as sa
 
 from dbtx import config as dbtx_config
-from dbtx.store import Store, open_store
+from dbtx.store import Store, migrate, open_store
 from dbtx.store.errors import StoreError
 from dbtx.store.repositories.projects import claim_project, find_claim
 
@@ -51,9 +54,10 @@ def run_startup_checks(config: DbtxConfig) -> list[str]:
 
     store = open_store(config)
     try:
-        check_database(store, config.command)
+        warnings = check_database(store, config.command)
         try:
-            return check_project_claim(store, config)
+            warnings.extend(check_project_claim(store, config))
+            return warnings
         except sa.exc.SQLAlchemyError as exc:
             raise StoreError(
                 f"the database {store.masked_uri()} failed during the start-up checks: "
@@ -63,8 +67,13 @@ def run_startup_checks(config: DbtxConfig) -> list[str]:
         store.dispose()
 
 
-def check_database(store: Store, command: str) -> None:
-    """Steps 1-3: connect, the server version floor, the tables."""
+def check_database(store: Store, command: str) -> list[str]:
+    """Steps 1-3: connect, the server version floor, the migration revision.
+
+    A database with no revision, or behind head, is upgraded when the adapter
+    `upgrades_automatically` (SQLite); otherwise it is a StoreError naming the command
+    that fixes it. Returns warnings to print (an upgrade made).
+    """
     try:
         connection = store.engine.connect()
     except sa.exc.SQLAlchemyError as exc:
@@ -75,13 +84,30 @@ def check_database(store: Store, command: str) -> None:
     with connection:
         store.adapter.check_server(connection)
         if command in COMMANDS_THAT_CREATE_THE_TABLES:
-            return
-        # The `project` table stands for all of them until migrations (plan Phase 3)
-        # compare the schema revision instead.
-        if not sa.inspect(connection).has_table("project", schema=store.schema):
+            return []
+        status = migrate.revision_status(connection, store.schema)
+    # The connection is closed before upgrading: on SQLite its transaction would hold
+    # the write lock the upgrade needs.
+
+    if status.state == migrate.CURRENT:
+        return []
+    if status.state == migrate.UNKNOWN:
+        raise StoreError(migrate.unknown_revision_message(store, status))
+
+    if not store.adapter.upgrades_automatically:
+        if status.state == migrate.UNINITIALISED:
             raise StoreError(
                 f"the database {store.masked_uri()} has no dbtx tables; run `dbtx db init`"
             )
+        raise StoreError(
+            f"the database {store.masked_uri()} is at revision {status.current}, behind "
+            f"this dbtx's {status.head}; run `dbtx db upgrade`"
+        )
+
+    before, after = migrate.upgrade(store)
+    if before is None:
+        return [f"created dbtx's tables in {store.masked_uri()} (revision {after})"]
+    return [f"upgraded {store.masked_uri()} from revision {before} to {after}"]
 
 
 def check_project_claim(store: Store, config: DbtxConfig) -> list[str]:

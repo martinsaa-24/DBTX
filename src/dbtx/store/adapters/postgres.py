@@ -24,6 +24,7 @@ class PostgresAdapter(StoreAdapter):
     driver_hint = "postgresql+psycopg:// (psycopg 3)"
     install_hint = "install dbtx[postgres]"
     supports_schemas = True
+    upgrades_automatically = False
     minimum_server_version = (12,)
     minimum_server_reason = "the oldest supported PostgreSQL release dbtx is tested against"
 

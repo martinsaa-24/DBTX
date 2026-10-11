@@ -38,7 +38,14 @@ from dbtx.store import Store
 from dbtx.store import models as m
 from tests.unit.conftest import FakeDbtRunner, LayoutBuilder
 
-from .conftest import CLOCK_START, ON_SQLITE_FILE_AND_POSTGRES, TEST_HOST, FakeClock
+from .conftest import (
+    CLOCK_START,
+    ON_POSTGRES,
+    ON_SQLITE_FILE,
+    ON_SQLITE_FILE_AND_POSTGRES,
+    TEST_HOST,
+    FakeClock,
+)
 
 OCT_1 = datetime(2026, 10, 1, 8, 30, tzinfo=timezone.utc)
 USAGE = "usage: dbtx db projects [rebind <name> --folder <folder> [--force]]"
@@ -183,8 +190,22 @@ def test_needs_a_db_uri(
     assert opened_stores == []
 
 
-@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
-def test_needs_the_tables(
+@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE, indirect=True)
+def test_creates_the_tables_of_an_uninitialised_sqlite_store(
+    empty_store: Store,
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(platform)
+    assert cli.main(["db", "projects", *db_flags(empty_store)]) == 0
+    captured = capsys.readouterr()
+    assert f"dbtx: warning: created dbtx's tables in {empty_store.masked_uri()} (revision 0001)" in captured.err
+    assert captured.out == "no project names are claimed in this database\n"
+
+
+@pytest.mark.parametrize("empty_store", ON_POSTGRES, indirect=True)
+def test_needs_an_initialised_postgres_store(
     empty_store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -399,7 +420,7 @@ def test_other_db_commands_are_not_available_yet(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(platform)
-    assert cli.main(["db", "status"]) == 2
+    assert cli.main(["db", "load", "--project-dir", "jaffle-shop"]) == 2
     assert "not available yet" in capsys.readouterr().err
 
 

@@ -35,6 +35,7 @@ class SqliteAdapter(StoreAdapter):
     driver_hint = "sqlite:/// (the standard library driver)"
     install_hint = ""
     supports_schemas = False
+    upgrades_automatically = True
     minimum_server_version = (3, 35)
     minimum_server_reason = "RETURNING needs 3.35"
 
@@ -66,6 +67,15 @@ class SqliteAdapter(StoreAdapter):
         sa.event.listen(engine, "connect", self.on_connect)
         sa.event.listen(engine, "begin", self.on_begin)
         return engine
+
+    def database_file(self, uri: str) -> Optional[Path]:
+        database = sa.make_url(uri).database
+        if database is None or database == "" or database == ":memory:":
+            return None
+        if database.startswith("file:"):
+            # A SQLite URI filename (`file:...?mode=memory&uri=true`): not a plain path.
+            return None
+        return Path(database)
 
     def on_connect(self, dbapi_connection, connection_record) -> None:
         # dbtx emits BEGIN itself (on_begin); pysqlite must not.

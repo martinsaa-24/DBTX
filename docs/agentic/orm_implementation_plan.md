@@ -1196,6 +1196,25 @@ parity test passes.
 **Done when:** `create_all` is used only in unit-test fixtures; everything else goes
 through migrations.
 
+**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+[phase3_state.md](phase3_state.md); adding a revision is in
+`docs/contributing/migrations.md`. Deviations from this section:
+- no `include_schemas`: the tables reach `DB_SCHEMA` through the engine's
+  `schema_translate_map`, and the version table through `version_table_schema`.
+  `include_schemas` would make autogenerate compare every schema on the server. The
+  migration test reflects `DB_SCHEMA` by setting `search_path`
+- the auto-upgrade decision and the "local file" checks of `dbtx db status` are adapter
+  members (`upgrades_automatically`, `database_file()`), not a SQLite branch
+- `dbtx db status` exits 0 whenever it can report (any revision state) and 2 only when
+  the server is unreachable. It never creates a missing SQLite file. dbt's default
+  clean target is `[target-path]` (`dbt/config/project.py`), not "target, dbt_packages"
+  as section 5.5 says
+- the SQLite auto-upgrade happens in the start-up checks, which for dbt commands still
+  run only once `ENFORCE_DB_REQUIREMENTS` is on (the Phase 2 deviation); `dbtx db
+  projects` and `dbtx db init` / `upgrade` migrate now
+- the `store` test fixture keeps `create_all` and records head, rather than migrating
+  for each test
+
 ### Phase 4: Loaders and repositories
 - `loaders/manifest.py`, `loaders/run_results.py`, `repositories/*`.
 - `dbtx db load` (the post-hoc path), which exercises everything without touching the

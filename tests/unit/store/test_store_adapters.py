@@ -47,7 +47,7 @@ from dbtx.store import open_store
 from dbtx.store.adapters import PostgresAdapter, SqliteAdapter, attached_adapter
 from dbtx.store.errors import StoreError
 from dbtx.store.types import JSONType
-from tests.unit.fake_store_adapters import CustomSqliteAdapter
+from tests.unit.fake_store_adapters import CustomSqliteAdapter, FakeDbAdapter
 
 from .conftest import (
     ON_POSTGRES,
@@ -119,6 +119,14 @@ def test_open_store_without_db_adapter_uses_the_default(
         assert "CUSTOMJSON" not in json_column_ddl(store)
     finally:
         store.dispose()
+
+
+def test_which_adapters_upgrade_automatically() -> None:
+    # A SQLite file is local and dbtx owns it: the start-up checks migrate it. A shared
+    # server is upgraded only by `dbtx db upgrade`. Plugins inherit the default (no).
+    assert SqliteAdapter.upgrades_automatically is True
+    assert PostgresAdapter.upgrades_automatically is False
+    assert FakeDbAdapter.upgrades_automatically is False
 
 
 def test_open_store_refuses_standalone_mode() -> None:
@@ -305,7 +313,9 @@ def test_postgres_utc_survives_rollbacks_and_pool_reuse(store: Store) -> None:
 @pytest.mark.parametrize("store", ON_POSTGRES, indirect=True)
 def test_postgres_tables_live_in_db_schema(store: Store) -> None:
     inspector = sa.inspect(store.engine)
-    assert sorted(inspector.get_table_names(schema=store.schema)) == sorted(spec_tables(load_spec()))
+    # Alembic's version table lives there too (Phase 3).
+    expected = sorted(list(spec_tables(load_spec())) + ["alembic_version"])
+    assert sorted(inspector.get_table_names(schema=store.schema)) == expected
 
 
 def test_postgres_adapter_needs_a_schema(postgres_uri: str) -> None:

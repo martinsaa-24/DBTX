@@ -1,4 +1,5 @@
-"""`dbtx db ...` commands (plan 6.7). Each needs platform mode (checked by `cli.main`).
+"""`dbtx db ...` commands (plan 6.7): `init`, `upgrade`, `status`, `projects`. Each
+needs platform mode (checked by `cli.main`).
 
 Unlike the start-up checks of dbt commands, a `dbtx db` command always uses the
 database when it runs: that is its whole job.
@@ -11,16 +12,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from dbtx.config import DBT_PROJECT_FILE_NAME, ENV_DB_URI
-from dbtx.store import Store, open_store
+import sqlalchemy as sa
+import yaml
+
+from dbtx.config import DBT_PROJECT_FILE_NAME, ENV_DB_URI, project_folders
+from dbtx.store import Store, migrate
+from dbtx.store import models as m
+from dbtx.store import open_store
 from dbtx.store.errors import StoreError
 from dbtx.store.repositories.projects import list_claims, rebind_project
-from dbtx.store.startup import check_database
+from dbtx.store.startup import check_database, error_reason
 
 if TYPE_CHECKING:
     from dbtx.config import DbtxConfig
 
 PROJECTS_USAGE = "usage: dbtx db projects [rebind <name> --folder <folder> [--force]]"
+DB_USAGE = (
+    "usage: dbtx db init | upgrade | status | projects [rebind <name> --folder <folder> "
+    "[--force]]"
+)
 
 
 def open_checked_store(config: DbtxConfig) -> Store:
@@ -39,11 +49,227 @@ def open_checked_store(config: DbtxConfig) -> Store:
         )
     store = open_store(config)
     try:
-        check_database(store, config.command)
+        warnings = check_database(store, config.command)
     except StoreError:
         store.dispose()
         raise
+    for warning in warnings:
+        print(f"dbtx: warning: {warning}", file=sys.stderr)
     return store
+
+
+# --------------------------------------------------------------------------------------
+# dbtx db init / upgrade
+# --------------------------------------------------------------------------------------
+
+
+def init_command(config: DbtxConfig, args: list[str]) -> int:
+    """`dbtx db init`: create DB_SCHEMA when missing (Postgres), then migrate to head."""
+    if len(args) != 0:
+        print(f"dbtx: `dbtx db init` takes no arguments; {DB_USAGE}", file=sys.stderr)
+        return 2
+    return run_and_report(init, config)
+
+
+def init(config: DbtxConfig) -> int:
+    store = open_checked_store(config)
+    try:
+        if store.adapter.supports_schemas and not migrate.schema_exists(store):
+            migrate.create_schema(store)
+            print(f"created schema {store.schema!r}")
+        before, after = migrate.upgrade(store)
+        print_upgrade(store, before, after)
+    finally:
+        store.dispose()
+    return 0
+
+
+def upgrade_command(config: DbtxConfig, args: list[str]) -> int:
+    """`dbtx db upgrade`: migrate to head."""
+    if len(args) != 0:
+        print(f"dbtx: `dbtx db upgrade` takes no arguments; {DB_USAGE}", file=sys.stderr)
+        return 2
+    return run_and_report(upgrade, config)
+
+
+def upgrade(config: DbtxConfig) -> int:
+    store = open_checked_store(config)
+    try:
+        if store.adapter.supports_schemas and not migrate.schema_exists(store):
+            raise StoreError(
+                f"the schema {store.schema!r} does not exist in {store.masked_uri()}; "
+                f"run `dbtx db init`"
+            )
+        before, after = migrate.upgrade(store)
+        print_upgrade(store, before, after)
+    finally:
+        store.dispose()
+    return 0
+
+
+def print_upgrade(store: Store, before: Optional[str], after: str) -> None:
+    if before is None:
+        print(f"created dbtx's tables in {store.masked_uri()} (revision {after})")
+    elif before == after:
+        print(f"{store.masked_uri()} is already at revision {after} (head)")
+    else:
+        print(f"upgraded {store.masked_uri()} from revision {before} to {after}")
+
+
+# --------------------------------------------------------------------------------------
+# dbtx db status
+# --------------------------------------------------------------------------------------
+
+
+def status_command(config: DbtxConfig, args: list[str]) -> int:
+    """`dbtx db status`: report on the database; never change it."""
+    if len(args) != 0:
+        print(f"dbtx: `dbtx db status` takes no arguments; {DB_USAGE}", file=sys.stderr)
+        return 2
+    return run_and_report(status, config)
+
+
+def status(config: DbtxConfig) -> int:
+    assert config.db_backend is not None and config.db_uri is not None
+    assert config.db_schema is not None and config.db_adapter is not None
+    rows: list[tuple[str, str]] = []
+    rows.append(("DB_BACKEND", f"{config.db_backend.value}  [{config.db_backend.source}]"))
+    if config.db_uri.value is None:
+        rows.append(("DB_URI", "not set"))
+        print_rows(rows)
+        return 0
+    rows.append(("DB_URI", f"{config.masked_db_uri()}  [{config.db_uri.source}]"))
+    if not config.backend_enabled:
+        print_rows(rows)
+        return 0
+
+    resolved = config.resolved_adapter()
+    assert resolved is not None
+    adapter_name, adapter_class = resolved
+    adapter = adapter_class()
+    if adapter.supports_schemas:
+        rows.append(("DB_SCHEMA", f"{config.db_schema.value}  [{config.db_schema.source}]"))
+    if config.db_adapter.value is None:
+        url = sa.make_url(config.db_uri.value)
+        pair = f"{url.get_backend_name()}+{url.get_driver_name()}"
+        rows.append(("adapter", f"{adapter_name}  [default for {pair}]"))
+    else:
+        rows.append(("adapter", f"{adapter_name}  [{config.db_adapter.source}]"))
+
+    warnings: list[str] = []
+    database_file = adapter.database_file(config.db_uri.value)
+    if database_file is not None:
+        warnings.extend(clean_target_warnings(config, adapter.display_name, database_file))
+        if not database_file.exists():
+            # Opening the store would create the file (and its directory).
+            rows.append(
+                (
+                    "database",
+                    f"{database_file} does not exist yet; the first run or `dbtx db init` "
+                    f"creates it",
+                )
+            )
+            print_rows(rows)
+            print_warnings(warnings)
+            return 0
+
+    projects: list[str] = []
+    store = open_store(config)
+    try:
+        try:
+            connection = store.engine.connect()
+        except sa.exc.SQLAlchemyError as exc:
+            print_rows(rows)
+            raise StoreError(
+                f"cannot connect to the database {store.masked_uri()}: {error_reason(exc)}"
+            ) from None
+        with connection:
+            version = store.adapter.server_version(connection)
+            version_text = ".".join(str(part) for part in version)
+            rows.append(("server", f"{store.adapter.display_name} {version_text}"))
+            revision = migrate.revision_status(connection, store.schema)
+            rows.append(("revision", revision_text(revision)))
+            if revision.state == migrate.CURRENT:
+                counts = []
+                for table in m.Base.metadata.sorted_tables:
+                    count = connection.execute(
+                        sa.select(sa.func.count()).select_from(table)
+                    ).scalar_one()
+                    counts.append(f"{table.name} {count}")
+                rows.append(("tables", ", ".join(counts)))
+                projects = list(
+                    connection.execute(
+                        sa.select(m.Project.project).order_by(m.Project.project)
+                    ).scalars()
+                )
+    finally:
+        store.dispose()
+
+    if database_file is not None and len(projects) > 1:
+        warnings.append(
+            f"this {adapter.display_name} store holds {len(projects)} projects "
+            f"({', '.join(projects)}); one database file suits one host: projects that "
+            f"build at the same time, or on several hosts, should share a Postgres database"
+        )
+    print_rows(rows)
+    print_warnings(warnings)
+    return 0
+
+
+def revision_text(revision: migrate.RevisionStatus) -> str:
+    if revision.state == migrate.CURRENT:
+        return f"{revision.current} (head)"
+    if revision.state == migrate.UNINITIALISED:
+        return "none; run `dbtx db init`"
+    if revision.state == migrate.BEHIND:
+        return f"{revision.current}; head is {revision.head}, run `dbtx db upgrade`"
+    return (
+        f"{revision.current!r}, which this dbtx does not know (head is {revision.head!r}); "
+        f"it was migrated by a newer dbtx"
+    )
+
+
+def clean_target_warnings(config: DbtxConfig, display_name: str, database_file: Path) -> list[str]:
+    """A warning for each platform project whose dbt clean target holds the database
+    file: `dbt clean` would delete it. dbt's default clean target is its target path."""
+    assert config.platform_root is not None
+    warnings = []
+    database = database_file.resolve()
+    for folder in project_folders(config.platform_root):
+        project = config.platform_root / folder
+        try:
+            data = yaml.safe_load((project / DBT_PROJECT_FILE_NAME).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        targets = data.get("clean-targets")
+        if targets is None:
+            targets = [data.get("target-path") or "target"]
+        if not isinstance(targets, list):
+            continue
+        for target in targets:
+            if not isinstance(target, str):
+                continue
+            clean_dir = (project / target).resolve()
+            if database.is_relative_to(clean_dir):
+                warnings.append(
+                    f"the {display_name} store {database_file} is inside {clean_dir}, a clean "
+                    f"target of the project in {folder}: `dbt clean` deletes it"
+                )
+    return warnings
+
+
+def print_rows(rows: list[tuple[str, str]]) -> None:
+    width = max(len(label) for label, _ in rows)
+    print("dbtx db status")
+    for label, value in rows:
+        print(f"  {label:<{width}}  {value}")
+
+
+def print_warnings(warnings: list[str]) -> None:
+    for warning in warnings:
+        print(f"dbtx: warning: {warning}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------------------

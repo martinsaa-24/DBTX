@@ -37,6 +37,7 @@ over one of the `ON_*` lists, and is never generated for the others (no skips):
 
 from __future__ import annotations
 
+import shutil
 import uuid
 import warnings
 from collections.abc import Iterator
@@ -46,13 +47,14 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 import yaml
+from alembic import command
 from sqlalchemy.pool import StaticPool
 
 import dbtx.store
 import dbtx.store.clock
 import dbtx.store.repositories.projects
 from dbtx.config import DbtxConfig, Setting
-from dbtx.store import Store
+from dbtx.store import Store, migrate
 from dbtx.store import models as m
 from dbtx.store import open_store
 
@@ -155,12 +157,71 @@ def postgres_uri(pytestconfig: pytest.Config, tmp_path_factory: pytest.TempPathF
         server.cleanup()
 
 
+@pytest.fixture
+def missing_schema(postgres_uri: str) -> Iterator[str]:
+    """A DB_SCHEMA name that does not exist yet on the test server. Dropped after, if a
+    test created it."""
+    name = f"dbtx_test_{uuid.uuid4().hex[:12]}"
+    yield name
+    admin = sa.create_engine(postgres_uri)
+    with admin.begin() as conn:
+        conn.execute(sa.text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
+    admin.dispose()
+
+
+@pytest.fixture
+def limited_role_uri(postgres_uri: str) -> Iterator[str]:
+    """URI of the test server as a role that may connect but not create schemas (the
+    database's CREATE privilege is not granted to it). Dropped after."""
+    role = f"dbtx_limited_{uuid.uuid4().hex[:8]}"
+    admin = sa.create_engine(postgres_uri)
+    with admin.begin() as conn:
+        conn.execute(sa.text(f'CREATE ROLE "{role}" LOGIN'))
+    url = sa.make_url(postgres_uri).set(username=role, password=None)
+    yield url.render_as_string(hide_password=False)
+    with admin.begin() as conn:
+        conn.execute(sa.text(f'DROP OWNED BY "{role}"'))
+        conn.execute(sa.text(f'DROP ROLE "{role}"'))
+    admin.dispose()
+
+
 # --------------------------------------------------------------------------------------
 # Engines, one per backend
 # --------------------------------------------------------------------------------------
 
 
 SQLITE_MEMORY_URI = "sqlite+pysqlite:///:memory:"
+
+
+# A revision after dbtx's head, for "behind head" tests (see `extra_revision`).
+EXTRA_REVISION = '''"""Test only: an empty revision after dbtx's head."""
+
+revision = "0002"
+down_revision = "0001"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    pass
+
+
+def downgrade() -> None:
+    pass
+'''
+
+
+@pytest.fixture
+def extra_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """dbtx's migrations plus an empty revision `0002` after its head: copies them to
+    `tmp_path` and points `dbtx.store.migrate` at the copy. Returns the new head, so a
+    database at dbtx's real head is now one revision behind."""
+    source = Path(dbtx.store.__file__).parent / "migrations"
+    copy = tmp_path / "migrations"
+    shutil.copytree(source, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    (copy / "versions" / "0002_test_only.py").write_text(EXTRA_REVISION)
+    monkeypatch.setattr(migrate, "SCRIPT_LOCATION", str(copy))
+    return "0002"
 
 
 def sqlite_file_uri(tmp_path: Path) -> str:
@@ -290,6 +351,15 @@ def postgres_uri_with_session_time_zone(uri: str, time_zone: str) -> str:
     return url.render_as_string(hide_password=False)
 
 
+def create_tables_at_head(store: Store) -> None:
+    """Every table, by create_all (much faster than running the migrations for each
+    test), with the head revision recorded, as `dbtx db init` leaves a database.
+    test_store_migrations.py proves the migrations build the same schema."""
+    m.Base.metadata.create_all(store.engine)
+    with store.engine.begin() as connection:
+        command.stamp(migrate.alembic_config(connection, store.schema), "head")
+
+
 def _build_store(request: pytest.FixtureRequest, tmp_path: Path, create_tables: bool) -> Iterator[Store]:
     """Yields a Store on `request.param`'s backend; disposed (Postgres: dropped) after.
 
@@ -302,7 +372,7 @@ def _build_store(request: pytest.FixtureRequest, tmp_path: Path, create_tables: 
         store = open_store(store_config(SQLITE_MEMORY_URI))
         store.test_backend = backend
         if create_tables:
-            m.Base.metadata.create_all(store.engine)
+            create_tables_at_head(store)
         yield store
         store.dispose()
         return
@@ -311,7 +381,7 @@ def _build_store(request: pytest.FixtureRequest, tmp_path: Path, create_tables: 
         store = open_store(store_config(sqlite_file_uri(tmp_path)))
         store.test_backend = backend
         if create_tables:
-            m.Base.metadata.create_all(store.engine)
+            create_tables_at_head(store)
         yield store
         store.dispose()
         return
@@ -327,7 +397,7 @@ def _build_store(request: pytest.FixtureRequest, tmp_path: Path, create_tables: 
         store.test_backend = backend
         try:
             if create_tables:
-                m.Base.metadata.create_all(store.engine)
+                create_tables_at_head(store)
             yield store
         finally:
             store.dispose()

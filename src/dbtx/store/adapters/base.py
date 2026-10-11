@@ -9,6 +9,7 @@ one, means adding one `StoreAdapter` subclass and registering it under a name
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import ClassVar, Optional, Union
 
 import sqlalchemy as sa
@@ -33,6 +34,10 @@ class StoreAdapter(ABC):
     install_hint: ClassVar[str]
     # Whether DB_SCHEMA applies (Postgres has schemas, SQLite does not).
     supports_schemas: ClassVar[bool]
+    # Whether the start-up checks migrate a database that is behind head (or has no
+    # tables yet) instead of refusing to run: True for a local file dbtx owns (SQLite),
+    # False for a shared server, which only `dbtx db init` / `upgrade` changes.
+    upgrades_automatically: ClassVar[bool] = False
     # The oldest server version dbtx works with, and why.
     minimum_server_version: ClassVar[tuple[int, ...]]
     minimum_server_reason: ClassVar[str]
@@ -65,6 +70,12 @@ class StoreAdapter(ABC):
             f"{self.display_name} {found_text} is too old: dbtx needs {self.display_name} "
             f"{minimum_text} or newer ({self.minimum_server_reason})"
         )
+
+    def database_file(self, uri: str) -> Optional[Path]:
+        """The local file that holds the database at `uri`, or None (a server, or an
+        in-memory database). `dbtx db status` reports a missing file without creating it,
+        and warns about a file only one host can share."""
+        return None
 
     # ----------------------------------------------------------------------------------
     # Column types

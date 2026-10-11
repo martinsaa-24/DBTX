@@ -416,6 +416,30 @@ then the environment. `.env` files are never read.
   `--standalone-mode` are warnings, not errors, and dbt commands do not connect to
   the database (no claim is made). `dbtx db` commands always use it.
 
+#### Setting up the database: `dbtx db init`, `upgrade`, `status`
+
+dbtx creates and migrates its own tables. The migrations ship inside the package, so
+there is no `alembic.ini` to manage.
+
+```console
+dbtx db init       # Postgres: create DB_SCHEMA if missing; then create or migrate the tables
+dbtx db upgrade    # migrate the tables to this dbtx version's schema
+dbtx db status     # backend, URI, adapter, server version, schema revision, row counts
+```
+
+- **SQLite needs no setup.** dbtx creates the file and its tables the first time it
+  uses the database, and migrates them after you upgrade dbtx. `dbtx db init` does the
+  same on demand.
+- **Postgres is never changed implicitly.** A database without dbtx's tables, or one
+  behind this dbtx version, stops the command (exit 2) with `run dbtx db init` or
+  `run dbtx db upgrade`. `dbtx db init` creates `DB_SCHEMA` when the database user is
+  allowed to; otherwise an administrator creates it first.
+- A database migrated by a newer dbtx is refused: upgrade dbtx instead.
+- `dbtx db status` only reports. It creates nothing (not even a SQLite file), works
+  with the backend disabled or no `DB_URI`, and warns when a SQLite file holds several
+  projects (one file suits one host) or sits inside a project's dbt clean target
+  (`dbt clean` would delete it).
+
 #### Database adapter plugins
 
 SQLite and Postgres are built in. **Store adapter plugins** add other databases, or

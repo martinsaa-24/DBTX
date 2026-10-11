@@ -97,7 +97,10 @@ def test_help_shows_dbtx_usage_before_dbt_help(
     out = capsys.readouterr().out
     # dbtx's own commands and flags are listed...
     assert out.startswith("usage: dbtx")
-    for text in ["dbtx build", "dbtx compile", "dbtx templates", "dbtx docs", "dbtx config"]:
+    for text in [
+        "dbtx build", "dbtx compile", "dbtx templates", "dbtx docs", "dbtx config",
+        "dbtx db init", "dbtx db upgrade", "dbtx db status", "dbtx db projects",
+    ]:
         assert text in out
     for flag in [
         "--platform-dir", "--standalone-mode", "--config-file", "--db-backend", "--db-uri",
@@ -296,5 +299,5 @@ def test_dbtx_db_is_not_available_yet(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(platform)
-    assert cli.main(["db", "status"]) == 2
+    assert cli.main(["db", "load", "--project-dir", "jaffle-shop"]) == 2
     assert "not available yet" in capsys.readouterr().err

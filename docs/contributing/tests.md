@@ -119,7 +119,7 @@ higher:
 |---|---|
 | `tests/conftest.py` | the `--postgres-uri` option (registered here so pytest accepts it whatever is selected), `manifest` (a deep copy of the frozen manifest per test, safe to mutate), `templates`, `reports` |
 | `tests/unit/conftest.py` | `clean_env` (autouse: clears `DBTX_*`, `DBT_PROJECT_DIR`, `DBT_PROFILES_DIR`), `no_adapter_plugins` (autouse: hides installed store adapter plugins), `adapter_plugins` (installs fake `dbtx.store_adapters` entry points from `tests/unit/fake_store_adapters.py`, which also holds `FakeDbDialect`, a `fakedb` SQLAlchemy dialect for compiling DDL without a database, and `CustomSqliteAdapter` / `OtherSqliteAdapter`, plugins for the built-in `sqlite` dialect that support `pysqlcipher` too, for `DB_ADAPTER` and default-adapter tests), `enforce`, `config_sample()`, `layout` (a `LayoutBuilder` over `tmp_path`), `platform`, `lone_project`, `fake_dbt` |
-| `tests/unit/store/conftest.py` | `clock` (autouse `FakeClock` replacing `dbtx.store.clock.now`), `host` (autouse: the host name a claim records is `build-01`), `spec` (the shipped `schema.yml`), `postgres_uri` (session: `--postgres-uri`, or the URI of a throwaway pgserver), `SQLITE_MEMORY_URI` / `sqlite_file_uri()`, `store` / `empty_store` (an open `Store` built by the real `open_store` from `store_config(uri, schema, adapter)`, with or without tables), `ALL_BACKENDS` and the `ON_*` backend lists (`ON_POSTGRES`, `ON_SQLITE`, `ON_SQLITE_MEMORY`, `ON_SQLITE_FILE`, `ON_SQLITE_FILE_AND_POSTGRES`), `engine` (a plain engine without adapter settings) |
+| `tests/unit/store/conftest.py` | `clock` (autouse `FakeClock` replacing `dbtx.store.clock.now`), `host` (autouse: the host name a claim records is `build-01`), `spec` (the shipped `schema.yml`), `postgres_uri` (session: `--postgres-uri`, or the URI of a throwaway pgserver), `SQLITE_MEMORY_URI` / `sqlite_file_uri()`, `store` / `empty_store` (an open `Store` built by the real `open_store` from `store_config(uri, schema, adapter)`, with or without tables), `ALL_BACKENDS` and the `ON_*` backend lists (`ON_POSTGRES`, `ON_SQLITE`, `ON_SQLITE_MEMORY`, `ON_SQLITE_FILE`, `ON_SQLITE_FILE_AND_POSTGRES`), `engine` (a plain engine without adapter settings), `create_tables_at_head(store)` (what `store` does: `create_all`, then record the head revision), `extra_revision` (the migrations plus an empty `0002`, so the real head is "behind"), `missing_schema` (a Postgres schema name that does not exist yet), `limited_role_uri` (the test server as a role that cannot create schemas) |
 | `tests/live/conftest.py` | `built_project`, `project` |
 | a test file | fixtures only that file uses (for example `psycopg_missing` in `test_config.py`) |
 
@@ -170,8 +170,11 @@ subpackage gets a folder once it has fixtures no other test uses.
 | several threads on one store: concurrent writers, concurrent claimers | `test_store_concurrency.py` |
 | server version floors (`check_server`) | `test_store_server_check.py` |
 | guard G2's registry (`store/repositories/projects.py`) | `test_store_projects.py` |
-| the start-up checks through `cli.main` (`store/startup.py`): gates, connect, tables, G1 + G2 | `test_store_startup.py` |
+| the start-up checks through `cli.main` (`store/startup.py`): gates, connect, revision (SQLite auto-upgrade), G1 + G2 | `test_store_startup.py` |
 | `dbtx db projects` and `rebind` (`store/cli.py`) | `test_store_db_projects.py` |
+| migrations (`store/migrate.py`, `store/migrations/`): head, revision status, upgrade vs the models, downgrade | `test_store_migrations.py` |
+| `dbtx db init` and `dbtx db upgrade` (`store/cli.py`) | `test_store_db_migrate.py` |
+| `dbtx db status` and `StoreAdapter.database_file` (`store/cli.py`) | `test_store_db_status.py` |
 
 Every test, fixture and helper function is **type-annotated**, parameters and return
 value, so a reader can tell what `store`, `layout` or `rows` is without finding where

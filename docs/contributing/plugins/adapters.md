@@ -124,7 +124,8 @@ looks the way it does, see [the adapter architecture](../architecture/adapters.m
 | `driver_package` | `str \| None`, or `dict[str, str \| None]` | The module each driver needs importable when the backend is enabled. One value applies to every driver; a dict needs an entry per driver in `driver`. Checked with `importlib.util.find_spec`, never imported. `None` when the driver ships with Python |
 | `driver_hint` | `str` | Shown when the driver is wrong: what to write in `DB_URI` instead, e.g. `"duckdb+duckdb_engine://"` |
 | `install_hint` | `str` | Shown when a driver package is missing, e.g. `"pip install dbtx-duckdb"` |
-| `supports_schemas` | `bool` | Whether `DB_SCHEMA` applies. If `False`, setting `DB_SCHEMA` explicitly is a config error, and `create_engine` receives `schema=None` |
+| `supports_schemas` | `bool` | Whether `DB_SCHEMA` applies. If `False`, setting `DB_SCHEMA` explicitly is a config error, and `create_engine` receives `schema=None`. If `True`, `dbtx db init` creates `DB_SCHEMA` when it is missing |
+| `upgrades_automatically` | `bool`, default `False` | Whether the start-up checks migrate a database that has no tables or is behind, instead of refusing to run. `True` only for a local database dbtx owns (SQLite); a shared server is changed only by `dbtx db init` / `upgrade` |
 | `minimum_server_version` | `tuple[int, ...]` | The oldest server version that works. `check_server` refuses older ones at start-up |
 | `minimum_server_reason` | `str` | Why that version, shown in the refusal ("RETURNING needs 3.35") |
 
@@ -169,7 +170,9 @@ values (`populate_existing=True`). Do not commit: the caller owns the transactio
 
 ### Concrete methods
 
-`check_server()`, `upsert()` and `json_type()` are implemented in the base class.
+`check_server()`, `upsert()`, `json_type()` and `database_file()` are implemented in the base class.
+
+**`database_file(uri) -> Path | None`**: the local file that holds the database, or `None` (the default: a server, or an in-memory database). Override it for a file-based backend. `dbtx db status` then reports a missing file without creating it, and warns when the file holds several projects or sits inside a dbt clean target.
 
 **`json_type() -> TypeEngine`**: override this when the backend has a better JSON type.
 The base class returns `sa.JSON(none_as_null=True)`. `PostgresAdapter` returns

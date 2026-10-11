@@ -6,6 +6,8 @@
     dbtx docs patch|install|status [options...]        overlay run data onto generated dbt docs
     dbtx docs serve --docs-loc DIR [options...]        serve the generated docs over uvicorn
     dbtx config                                        show the resolved dbtx configuration
+    dbtx db init | upgrade                             create or migrate dbtx's tables
+    dbtx db status                                     report on the database
     dbtx db projects [rebind <name> --folder <folder> [--force]]
                                                        list or move project-name claims
     dbtx <any other dbt command> [options...]           passed straight through to dbt
@@ -50,6 +52,9 @@ dbtx commands:
   dbtx docs patch|install|status [options...]          overlay run data onto generated dbt docs
   dbtx docs serve --docs-loc DIR [options...]          serve the generated docs over uvicorn
   dbtx config                                          show the resolved dbtx configuration
+  dbtx db init                                         create (Postgres: and its schema) or migrate dbtx's tables
+  dbtx db upgrade                                      migrate dbtx's tables to this version
+  dbtx db status                                       report on the database: revision, row counts
   dbtx db projects [rebind <name> --folder <folder> [--force]]
                                                        list or move project-name claims
   dbtx <any other dbt command> [options...]            passed straight through to dbt
@@ -188,14 +193,34 @@ def db_command(config: DbtxConfig, args: list[str]) -> int:
         print("dbtx: database operations require platform mode", file=sys.stderr)
         return 2
     subcommand = args[0] if args else ""
+    if subcommand == "init":
+        from dbtx.store.cli import init_command
+
+        return init_command(config, args[1:])
+    if subcommand == "upgrade":
+        from dbtx.store.cli import upgrade_command
+
+        return upgrade_command(config, args[1:])
+    if subcommand == "status":
+        from dbtx.store.cli import status_command
+
+        return status_command(config, args[1:])
     if subcommand == "projects":
         from dbtx.store.cli import projects_command
 
         return projects_command(config, args[1:])
-    print(
-        f"dbtx: `dbtx db {subcommand}` is not available yet (planned for a later phase)",
-        file=sys.stderr,
-    )
+    if subcommand == "load":
+        print(
+            "dbtx: `dbtx db load` is not available yet (planned for a later phase)",
+            file=sys.stderr,
+        )
+        return 2
+    from dbtx.store.cli import DB_USAGE
+
+    if subcommand == "":
+        print(f"dbtx: {DB_USAGE}", file=sys.stderr)
+        return 2
+    print(f"dbtx: unknown command `dbtx db {subcommand}`; {DB_USAGE}", file=sys.stderr)
     return 2
 
 

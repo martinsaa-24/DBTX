@@ -11,7 +11,13 @@ Checks, in order; each failure exits 2 with a message and dbt is never started:
 1. connect (an unreachable server, or a SQLite file that cannot be created; the URI is
    shown with its password masked)
 2. the server version floor
-3. dbtx's tables exist (until migrations, plan Phase 3: "run `dbtx db init`").
+3. the database's migration revision against this dbtx's head (plan Phase 3):
+   * at head → continue
+   * a revision this dbtx does not know (migrated by a newer dbtx) → exit 2
+   * no revision, or an older one: an adapter that `upgrades_automatically` (SQLite, a
+     local file dbtx owns) is upgraded, with a warning saying so, and the run
+     continues; any other (Postgres) → exit 2 with `run dbtx db init` (no revision) or
+     `run dbtx db upgrade` (older)
    `dbtx db init` and `dbtx db upgrade` skip this check, since fixing it is their job
 4. guard G2, for a command with a project: the project folder claims its dbt project
    name, or confirms its claim. Another folder's claim → exit 2. Warnings from the
@@ -39,11 +45,19 @@ import sqlalchemy as sa
 import dbtx.store.startup as startup
 from dbtx import cli
 from dbtx.config import DbtxConfig
-from dbtx.store import Store
+from dbtx.store import Store, migrate
 from dbtx.store import models as m
 from tests.unit.conftest import FakeDbtRunner, LayoutBuilder
 
-from .conftest import CLOCK_START, ON_SQLITE_FILE_AND_POSTGRES, TEST_HOST, FakeClock, store_config
+from .conftest import (
+    CLOCK_START,
+    ON_POSTGRES,
+    ON_SQLITE_FILE,
+    ON_SQLITE_FILE_AND_POSTGRES,
+    TEST_HOST,
+    FakeClock,
+    store_config,
+)
 
 OCT_1 = datetime(2026, 10, 1, 8, 30, tzinfo=timezone.utc)
 
@@ -53,6 +67,19 @@ def db_flags(store: Store) -> list[str]:
     if store.schema is not None:
         flags += ["--db-schema", store.schema]
     return flags
+
+
+def set_revision(store: Store, revision: str) -> None:
+    """Write `revision` into the version table, as if the database had been migrated
+    there (also a revision this dbtx does not know)."""
+    with store.engine.begin() as connection:
+        version_table = sa.table("alembic_version", sa.column("version_num"), schema=store.schema)
+        connection.execute(sa.update(version_table).values(version_num=revision))
+
+
+def revision(store: Store) -> migrate.RevisionStatus:
+    with store.engine.connect() as connection:
+        return migrate.revision_status(connection, store.schema)
 
 
 def claims(store: Store) -> list[tuple]:
@@ -318,8 +345,28 @@ def test_g1_collision_from_the_folder_without_the_claim_is_refused(
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
-def test_missing_tables_stop_the_run(
+@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE, indirect=True)
+def test_an_uninitialised_sqlite_store_is_created_and_the_run_continues(
+    empty_store: Store,
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    enforce: None,
+    fake_dbt: type[FakeDbtRunner],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(platform)
+    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(empty_store)]) == 0
+    assert len(fake_dbt.calls) == 1
+    assert (
+        f"dbtx: warning: created dbtx's tables in {empty_store.masked_uri()} (revision 0001)"
+        in capsys.readouterr().err
+    )
+    assert revision(empty_store).state == "current"
+    assert claims(empty_store) == [("jaffle_shop", "jaffle-shop", CLOCK_START, TEST_HOST, CLOCK_START)]
+
+
+@pytest.mark.parametrize("empty_store", ON_POSTGRES, indirect=True)
+def test_an_uninitialised_postgres_store_stops_the_run(
     empty_store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -334,17 +381,83 @@ def test_missing_tables_stop_the_run(
         f"dbtx: the database {empty_store.masked_uri()} has no dbtx tables; run `dbtx db init`"
         in capsys.readouterr().err
     )
+    assert revision(empty_store).state == "uninitialised"
+
+
+@pytest.mark.parametrize("store", ON_SQLITE_FILE, indirect=True)
+def test_a_sqlite_store_behind_head_is_upgraded_and_the_run_continues(
+    store: Store,
+    extra_revision: str,
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    enforce: None,
+    fake_dbt: type[FakeDbtRunner],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    set_revision(store, "0001")
+    monkeypatch.chdir(platform)
+    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(store)]) == 0
+    assert len(fake_dbt.calls) == 1
+    assert (
+        f"dbtx: warning: upgraded {store.masked_uri()} from revision 0001 to 0002"
+        in capsys.readouterr().err
+    )
+    assert revision(store).current == "0002"
+
+
+@pytest.mark.parametrize("store", ON_POSTGRES, indirect=True)
+def test_a_postgres_store_behind_head_stops_the_run(
+    store: Store,
+    extra_revision: str,
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    enforce: None,
+    fake_dbt: type[FakeDbtRunner],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    set_revision(store, "0001")
+    monkeypatch.chdir(platform)
+    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(store)]) == 2
+    assert fake_dbt.calls == []
+    assert (
+        f"dbtx: the database {store.masked_uri()} is at revision 0001, behind this dbtx's "
+        f"0002; run `dbtx db upgrade`"
+    ) in capsys.readouterr().err
+    assert revision(store).current == "0001"
+    assert claims(store) == []
+
+
+@pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
+def test_a_revision_this_dbtx_does_not_know_stops_the_run(
+    store: Store,
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    enforce: None,
+    fake_dbt: type[FakeDbtRunner],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    set_revision(store, "ffff")
+    monkeypatch.chdir(platform)
+    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(store)]) == 2
+    assert fake_dbt.calls == []
+    assert (
+        f"dbtx: the database {store.masked_uri()} is at revision 'ffff', which this dbtx "
+        f"does not know (head is '0001'); it was migrated by a newer dbtx"
+    ) in capsys.readouterr().err
+    assert revision(store).current == "ffff"
 
 
 @pytest.mark.parametrize("command", ["db init", "db upgrade"])
 @pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
-def test_db_init_and_upgrade_skip_the_tables_check(
+def test_db_init_and_upgrade_skip_the_revision_check(
     empty_store: Store,
     enforce: None,
     command: str,
 ) -> None:
     config = replace(store_config(empty_store.uri, empty_store.schema), command=command)
     assert startup.run_startup_checks(config) == []
+    # Nothing was created either: fixing the revision is the command's own job.
+    assert revision(empty_store).state == "uninitialised"
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
