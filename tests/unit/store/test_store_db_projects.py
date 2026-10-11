@@ -5,8 +5,7 @@ Behaviour:
 `dbtx db projects`
 * lists every claim (project, folder, claimed at, by host, last seen), by project name;
   says so when there is none
-* uses the database whenever it runs: it is a `dbtx db` command, so it does not wait
-  for `ENFORCE_DB_REQUIREMENTS` like the start-up checks of dbt commands do
+* uses the database whenever it runs (a `dbtx db` command)
 * exit 2, with the reason, and no store opened where none is configured: standalone
   mode, a disabled backend, no DB_URI. Exit 2 when the database cannot be used: an
   unreachable server, no dbtx tables
@@ -135,13 +134,12 @@ def test_says_so_when_nothing_is_claimed(
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
-def test_uses_the_database_without_enforcement(
+def test_uses_the_database(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     opened_stores: list[str],
 ) -> None:
-    # No `enforce` fixture here: `dbtx db` commands always use the database.
     monkeypatch.chdir(platform)
     assert cli.main(["db", "projects", *db_flags(store)]) == 0
     assert opened_stores == [store.uri]
@@ -253,7 +251,6 @@ def test_rebind_moves_the_claim(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     clock: FakeClock,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
 ) -> None:
     # jaffle-shop was renamed on disk to jaffle-shop-new.

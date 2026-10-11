@@ -291,8 +291,9 @@ def test_an_unknown_status_in_strict_mode_writes_nothing(
 
 
 def test_unknown_arguments(
-    example_platform: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    example_platform: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     monkeypatch.chdir(example_platform)
-    assert cli.main(["db", "load", "--project-dir", "jaffle-shop", "--nope"]) == 2
+    uri = f"sqlite:///{tmp_path / 'dbtx.db'}"
+    assert cli.main(["db", "load", "--project-dir", "jaffle-shop", "--nope", "--db-uri", uri]) == 2
     assert capsys.readouterr().err.endswith("dbtx: usage: dbtx db load --project-dir DIR [--run-loc DIR]\n")

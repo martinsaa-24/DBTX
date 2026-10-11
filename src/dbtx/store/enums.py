@@ -118,3 +118,31 @@ def command_from_which(which: str) -> str | None:
     if command is None:
         return None
     return command.value
+
+
+# The command as typed (dbtx's command name: `build`, `source freshness`, `docs
+# generate`) → `invocation.command` (plan 5.2). The recorder uses it; a command not
+# listed here is not recorded (plan Q3). dbtx.config builds its "uses the database"
+# list from it.
+COMMAND_BY_CLI: dict[str, InvocationCommand] = {
+    "build": InvocationCommand.BUILD,
+    "compile": InvocationCommand.COMPILE,
+    "test": InvocationCommand.TEST,
+    "run": InvocationCommand.RUN,
+    "seed": InvocationCommand.SEED,
+    "snapshot": InvocationCommand.SNAPSHOT,
+    "parse": InvocationCommand.PARSE,
+    "run-operation": InvocationCommand.RUN_OPERATION,
+    "source freshness": InvocationCommand.SOURCE_FRESHNESS,
+    # The deprecated alias of `source freshness`.
+    "source snapshot-freshness": InvocationCommand.SOURCE_FRESHNESS,
+    "docs generate": InvocationCommand.DOCS_GENERATE,
+}
+
+
+def command_from_cli(command: str) -> str | None:
+    """The stored command for the command as typed, or None: not recorded."""
+    stored = COMMAND_BY_CLI.get(command)
+    if stored is None:
+        return None
+    return stored.value

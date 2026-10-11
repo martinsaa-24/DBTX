@@ -42,13 +42,20 @@ class _Plan:
 
 
 class ReportScheduler:
+    """`on_change(exposure_id, outcome)`, when given, is called after every outcome
+    transition (pending → running → rendered | error, pending → skipped), on the thread
+    that caused it and outside the lock. The scheduler knows nothing about who listens:
+    the store's recorder uses it to record each render (plan 5.4)."""
+
     def __init__(
         self,
         reports: Iterable[tuple[Report, Iterable[str]]],
         render: Callable[[Report], list[Path]],
+        on_change: Callable[[str, Outcome], None] | None = None,
     ) -> None:
         self._plans = {r.exposure_id: _Plan(r, frozenset(tests)) for r, tests in reports}
         self._render = render
+        self._on_change = on_change
         self._statuses: dict[str, str] = {}
         self._lock = threading.Lock()
         self._finished = False
@@ -68,6 +75,7 @@ class ReportScheduler:
 
     def node_finished(self, unique_id: str, status: str) -> None:
         ready: list[_Plan] = []
+        changed: list[tuple[str, Outcome]] = []
         with self._lock:
             self._statuses[unique_id] = status
             for plan in self._plans.values():
@@ -76,8 +84,12 @@ class ReportScheduler:
                 ):
                     if self._evaluate(plan):
                         ready.append(plan)
+                    if plan.outcome.status != "pending":
+                        changed.append((plan.report.exposure_id, plan.outcome))
         # On this thread, so dbt cannot close the adapter's connections underneath the
         # query, but outside the lock, so dbt's other node threads keep reporting theirs.
+        for exposure_id, outcome in changed:
+            self._notify(exposure_id, outcome)
         for plan in ready:
             self._run(plan)
 
@@ -87,6 +99,7 @@ class ReportScheduler:
         Nothing can still be rendering here: renders happen on dbt's node threads, and
         dbt fires `CommandCompleted` only once all of them have returned.
         """
+        changed: list[tuple[str, Outcome]] = []
         with self._lock:
             if self._finished:
                 return
@@ -94,6 +107,9 @@ class ReportScheduler:
             for plan in self._plans.values():
                 if plan.outcome.status == "pending":
                     plan.outcome = Outcome("skipped", "exposure was not reached in this run")
+                    changed.append((plan.report.exposure_id, plan.outcome))
+        for exposure_id, outcome in changed:
+            self._notify(exposure_id, outcome)
 
     def _evaluate(self, plan: _Plan) -> bool:
         """Settle `plan`'s outcome where it can be, returning True when it is now ready.
@@ -123,3 +139,9 @@ class ReportScheduler:
             plan.outcome = Outcome("rendered", paths=self._render(plan.report))
         except Exception as exc:
             plan.outcome = Outcome("error", f"{type(exc).__name__}: {exc}")
+        self._notify(plan.report.exposure_id, plan.outcome)
+
+    def _notify(self, exposure_id: str, outcome: Outcome) -> None:
+        """Tell the observer about a transition. Never called with the lock held."""
+        if self._on_change is not None:
+            self._on_change(exposure_id, outcome)

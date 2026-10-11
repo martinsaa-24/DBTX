@@ -35,6 +35,7 @@ from dbt.cli.main import dbtRunner
 from dbtx.config import ConfigError, DbtxConfig, load_config
 from dbtx.docs.command import run as docs_command
 from dbtx.runner import build, compile_project, exit_code
+from dbtx.store.recorder import Recorder
 from dbtx.templates import TemplateError, TemplateRegistry
 
 # Subcommands of `dbtx docs` that are ours; anything else under `docs`
@@ -134,7 +135,11 @@ def main(argv: list[str] | None = None) -> int:
         if len(args) == 1 or args[1] in ("-h", "--help") or args[1] in DOCS_SUBCOMMANDS:
             return docs_command(args[1:])
 
-    return exit_code(dbtRunner().invoke(args))
+    # Passed through to dbt. A recorded command (`run`, `test`, ...) is recorded.
+    recorder = Recorder.for_invocation(config)
+    result = dbtRunner(callbacks=[recorder.on_event]).invoke(args)
+    recorder.finish(result)
+    return exit_code(result)
 
 
 def show_config(config: DbtxConfig) -> int:

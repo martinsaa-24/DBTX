@@ -100,6 +100,30 @@ def finish(
         raise StoreError(f"no invocation {invocation_id!r} to finish")
 
 
+def set_resolved(
+    session: Session,
+    invocation_id: str,
+    *,
+    adapter_type: str,
+    target: str,
+    args: dict,
+) -> None:
+    """What dbt resolves only while the invocation runs (plan 5.2): the adapter type, the
+    target and the final args. The in-process recorder sets them at the end."""
+    invocation_table = m.Invocation.__table__
+    changed = session.execute(
+        sa.update(invocation_table)
+        .where(invocation_table.c.invocation_id == invocation_id)
+        .values(
+            adapter_type=adapter_type,
+            target=target,
+            args=sa.bindparam("new_args", value=args, type_=invocation_table.c.args.type),
+        )
+    ).rowcount
+    if changed == 0:
+        raise StoreError(f"no invocation {invocation_id!r} to update")
+
+
 def result_from_statuses(statuses: Iterable[str]) -> str:
     """The invocation's result from its node statuses."""
     seen = set(statuses)

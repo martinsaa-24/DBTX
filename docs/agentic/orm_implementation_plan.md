@@ -1289,6 +1289,48 @@ counts and no errors.
 **Done when:** `dbtx build` with a store configured matches the existing console output
 exactly, and the database holds the run.
 
+**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+[phase5_state.md](phase5_state.md). Deviations from this section and sections 5.2–5.7:
+- `ENFORCE_DB_REQUIREMENTS` is deleted, not first flipped: every check takes its
+  enforced branch. Bare `dbtx docs` (dbtx's docs help) now counts as a help request, so
+  it works without a platform like `dbtx docs --help`
+- the recorder (`src/dbtx/store/recorder.py`) gained `use_manifest(manifest, reports,
+  renders)`: `build` / `compile` hand over the parsed manifest, its reports and the
+  reports this run renders before dbt starts. `report_changed(exposure_id, outcome)`
+  is keyed by exposure id. Each recorder records exactly one invoke; dbtx's internal
+  `parse` / `ls` are never recorded
+- `args` is dbt's flags captured at `CommandCompleted` for **every** command: a probe
+  showed it equals the artifact's `args` (captured at `MainReportVersion` it does not:
+  dbt fills `deprecated_env_var_warnings` in later)
+- the registered-adapter fallback for `target` applies to every command, not only
+  `parse` / `run-operation`: `source freshness` on a project without freshness config
+  fires no `ConcurrencyLine` either. `adapter_type` comes from the manifest, else the
+  adapter, else `'unknown'`; the start row holds `'unknown'` until the end
+  (`invocations.set_resolved`)
+- `manifest_hash` is the sha256 of the manifest dbt **announced** writing in this
+  invocation (its `ArtifactWritten` event for a `WritableManifest`, which carries the
+  path; fired whatever the log level). No announcement (`--no-write-json`, a failed
+  parse, a crash) → NULL, so a manifest left by an earlier run is never attributed to
+  this one. dbtx's internal parse also writes the file, but in its own invocation,
+  which the recorder does not listen to
+- pass-through commands have no manifest from dbtx: the recorder uses dbt's parse
+  result, or the `manifest.json` whose `metadata.invocation_id` is this invocation's
+  (dbt parsed inside it); otherwise nothing is synced. Reports are synced only by
+  `dbtx build` / `compile`
+- best-effort (D5): one warning per recorder, then no more writes. Strict mode (D9)
+  re-raises only an unknown app-enforced value
+- `config.COMMANDS_THAT_USE_THE_DATABASE` stays an explicit tuple (importing the store's
+  enums would load SQLAlchemy on every config load); a test checks that every recorded
+  command (`enums.COMMAND_BY_CLI`) is in it
+- the live test's expectations follow the example project: a full build's result is
+  `warning` (one test warns) and it has six reports, not three. The console-output check
+  compares lines without times, completion-order numbering and padding, sorted (dbt's
+  threads finish in any order)
+- found and fixed in the live test infrastructure: dbt-duckdb reuses one DuckDB
+  environment per process while the credentials compare equal, so every in-process
+  live test shared the first test's warehouse (autouse `fresh_duckdb_environment`)
+- a `CHANGELOG.md` was added (the repository had none) for the breaking change
+
 ### Phase 6 (follow-up, separate plan): Consumers
 Not part of this delivery, listed so the schema choices are checked against them:
 - `dbtx docs patch --from-store`: build the `dbtx_runtime.json` history from

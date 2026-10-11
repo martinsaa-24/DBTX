@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from dbtx import cli, config
+from dbtx import cli
 from dbtx.store import adapters
 
 CONFIG_SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "config"
@@ -55,12 +55,6 @@ def adapter_plugins(monkeypatch: pytest.MonkeyPatch) -> Callable[[dict[str, str]
 
     monkeypatch.setattr(adapters, "_entry_points", lambda: list(installed))
     return install
-
-
-@pytest.fixture
-def enforce(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The behaviour after plan Phase 5: database-motivated problems exit 2."""
-    monkeypatch.setattr(config, "ENFORCE_DB_REQUIREMENTS", True)
 
 
 # --------------------------------------------------------------------------------------

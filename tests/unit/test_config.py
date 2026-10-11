@@ -159,7 +159,7 @@ def test_platform_dir_needs_a_dbtx_conf(layout: LayoutBuilder) -> None:
 
 
 def test_project_folder_with_dbtx_conf_is_never_a_platform_root(
-    lone_project: Path, layout: LayoutBuilder, monkeypatch: pytest.MonkeyPatch, enforce: None
+    lone_project: Path, layout: LayoutBuilder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     layout.config_file(lone_project, "platform_sqlite.conf")
     monkeypatch.chdir(lone_project)
@@ -170,7 +170,6 @@ def test_project_folder_with_dbtx_conf_is_never_a_platform_root(
 def test_no_parent_directory_search(
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     # cwd is a project folder whose parent is a platform root: still no platform.
     monkeypatch.chdir(platform / "jaffle-shop")
@@ -178,10 +177,9 @@ def test_no_parent_directory_search(
         load_config(["build"])
 
 
-def test_no_platform_is_an_error_once_enforced(
+def test_no_platform_is_an_error(
     lone_project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     monkeypatch.chdir(lone_project)
     with pytest.raises(ConfigError) as info:
@@ -190,22 +188,10 @@ def test_no_platform_is_an_error_once_enforced(
     assert "--platform-dir" in message and "--standalone-mode" in message
 
 
-def test_no_platform_falls_back_to_standalone_until_enforced(
-    lone_project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(lone_project)
-    cfg = load_config(["build", "-s", "x"])
-    assert cfg.mode == "standalone"
-    assert cfg.argv == ("build", "-s", "x")
-    assert any("no dbtx platform found" in w for w in cfg.warnings)
-
-
-@pytest.mark.parametrize("argv", [["--help"], ["build", "--help"], ["--version"], []])
+@pytest.mark.parametrize("argv", [["--help"], ["build", "--help"], ["--version"], [], ["docs"]])
 def test_help_works_without_a_platform(
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     argv: list[str],
 ) -> None:
     monkeypatch.chdir(layout.directory("empty"))
@@ -285,26 +271,6 @@ def test_standalone_mode_ignores_db_env_vars(
     )
 
 
-def test_fallback_to_standalone_says_db_schema_is_ignored(
-    lone_project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(lone_project)
-    cfg = load_config(["build", "--db-schema", "dbtx"])
-    assert cfg.mode == "standalone"
-    assert "--db-schema is ignored in standalone mode" in cfg.warnings
-
-
-def test_fallback_to_standalone_says_db_adapter_is_ignored(
-    lone_project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(lone_project)
-    cfg = load_config(["build", "--db-adapter", "sqlite"])
-    assert cfg.mode == "standalone"
-    assert "--db-adapter is ignored in standalone mode" in cfg.warnings
-
-
 # --------------------------------------------------------------------------------------
 # Step 2 (platform): project dir and argv rewrite
 # --------------------------------------------------------------------------------------
@@ -376,8 +342,49 @@ def test_project_folder_needs_a_dbt_project(
 ) -> None:
     layout.directory("platform/not-a-project")
     monkeypatch.chdir(platform)
-    with pytest.raises(ConfigError, match="has no dbt_project.yml"):
+    with pytest.raises(ConfigError) as info:
         load_config(["build", "--project-dir", "not-a-project"])
+    assert str(info.value) == (
+        f"{platform / 'not-a-project'} (from --project-dir) has no dbt_project.yml; "
+        f"project folders: jaffle-shop, other-shop"
+    )
+
+
+def test_a_project_dir_that_does_not_exist(
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(platform)
+    with pytest.raises(ConfigError) as info:
+        load_config(["build", "--project-dir", "jafffle-shop"])
+    assert str(info.value) == (
+        f"{platform / 'jafffle-shop'} (from --project-dir) does not exist; project "
+        f"folders: jaffle-shop, other-shop"
+    )
+
+
+def test_a_project_dir_from_dbt_project_dir_that_does_not_exist(
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(platform)
+    monkeypatch.setenv("DBT_PROJECT_DIR", "nowhere")
+    with pytest.raises(ConfigError, match=r"nowhere \(from DBT_PROJECT_DIR\) does not exist"):
+        load_config(["build"])
+
+
+def test_a_project_dir_that_is_a_file(
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (platform / "notes.txt").write_text("not a project")
+    monkeypatch.chdir(platform)
+    with pytest.raises(ConfigError) as info:
+        load_config(["build", "--project-dir", "notes.txt"])
+    assert str(info.value) == (
+        f"{platform / 'notes.txt'} (from --project-dir) is not a directory; project "
+        f"folders: jaffle-shop, other-shop"
+    )
 
 
 def test_project_level_dbtx_conf_is_an_error_in_platform_mode(
@@ -622,7 +629,7 @@ def test_db_backend_from_the_file_beats_env(
     layout.project(root, "jaffle-shop", "jaffle_shop")
     monkeypatch.chdir(root)
     monkeypatch.setenv("DBTX_DB_BACKEND", "disabled")
-    cfg = load_config(BUILD)
+    cfg = load_config(["config"])
     assert cfg.db_backend.value == "enabled"
     assert cfg.db_backend.source == f"file {root / 'dbtx.conf'}:2"
 
@@ -1038,7 +1045,7 @@ def test_db_schema_without_a_uri_is_accepted(
     root = layout.platform_root(sample="backend_without_uri.conf")
     layout.project(root, "jaffle-shop", "jaffle_shop")
     monkeypatch.chdir(root)
-    assert load_config([*BUILD, "--db-schema", "x"]).db_schema.value == "x"
+    assert load_config(["config", "--db-schema", "x"]).db_schema.value == "x"
 
 
 # --------------------------------------------------------------------------------------
@@ -1056,7 +1063,6 @@ def platform_without_uri(layout: LayoutBuilder) -> Path:
 def test_missing_uri_for_a_database_command(
     platform_without_uri: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     monkeypatch.chdir(platform_without_uri)
     with pytest.raises(ConfigError) as info:
@@ -1064,15 +1070,6 @@ def test_missing_uri_for_a_database_command(
     message = str(info.value)
     assert "needs a database" in message
     assert "--db-backend disabled" in message and "--standalone-mode" in message
-
-
-def test_missing_uri_only_warns_until_enforced(
-    platform_without_uri: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(platform_without_uri)
-    cfg = load_config(BUILD)
-    assert any("needs a database" in w for w in cfg.warnings)
 
 
 @pytest.mark.parametrize(
@@ -1086,7 +1083,7 @@ def test_missing_uri_only_warns_until_enforced(
     ],
 )
 def test_missing_uri_is_fine_when_disabled_or_unused(
-    platform_without_uri: Path, monkeypatch: pytest.MonkeyPatch, enforce: None, argv: list[str]
+    platform_without_uri: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str]
 ) -> None:
     monkeypatch.chdir(platform_without_uri)
     load_config(argv)
@@ -1168,7 +1165,7 @@ def colliding_platform(platform: Path, layout: LayoutBuilder) -> Path:
 
 @pytest.mark.parametrize("folder", ["jaffle-shop", "jaffle-shop-2"])
 def test_g1_collision_with_the_current_project_is_recorded(
-    colliding_platform: Path, monkeypatch: pytest.MonkeyPatch, enforce: None, folder: str
+    colliding_platform: Path, monkeypatch: pytest.MonkeyPatch, folder: str
 ) -> None:
     # Not decided here: the established owner in the database may run (guard G2), so
     # the start-up checks decide (test_store_startup.py).
@@ -1179,20 +1176,9 @@ def test_g1_collision_with_the_current_project_is_recorded(
     assert not any("declared by" in w for w in cfg.warnings)
 
 
-def test_g1_only_warns_until_enforced(
-    colliding_platform: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(colliding_platform)
-    cfg = load_config(BUILD)
-    assert any("declared by 2 folders" in w and "not enforced yet" in w for w in cfg.warnings)
-    assert cfg.colliding_folders == ("jaffle-shop", "jaffle-shop-2")
-
-
 def test_g1_records_the_project_name_without_a_collision(
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     monkeypatch.chdir(platform)
     cfg = load_config(BUILD)
@@ -1203,7 +1189,6 @@ def test_g1_unreadable_name_is_left_to_dbt(
     platform: Path,
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     layout.project(platform, "nameless", "unused", dbt_project_text="profile: x\n")
     monkeypatch.chdir(platform)
@@ -1214,7 +1199,6 @@ def test_g1_unreadable_name_is_left_to_dbt(
 def test_g1_unrelated_collision_is_a_warning(
     colliding_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     monkeypatch.chdir(colliding_platform)
     cfg = load_config(["build", "--project-dir", "other-shop"])
@@ -1228,7 +1212,6 @@ def test_g1_unrelated_collision_is_a_warning(
 def test_g1_needs_the_backend_and_a_database_command(
     colliding_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     argv: list[str],
 ) -> None:
     monkeypatch.chdir(colliding_platform)
@@ -1240,7 +1223,6 @@ def test_g1_ignores_hidden_and_nested_folders(
     platform: Path,
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     layout.project(platform, ".backup", "jaffle_shop")
     layout.project(platform / "other-shop" / "dbt_packages", "copy", "jaffle_shop")
@@ -1253,7 +1235,6 @@ def test_g1_renders_a_jinja_name(
     platform: Path,
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
 ) -> None:
     layout.project(
         platform,
@@ -1489,7 +1470,7 @@ def test_resolved_adapter_without_a_uri(
     root = layout.platform_root(sample="backend_without_uri.conf")
     layout.project(root, "jaffle-shop", "jaffle_shop")
     monkeypatch.chdir(root)
-    assert load_config(BUILD).resolved_adapter() is None
+    assert load_config(["config"]).resolved_adapter() is None
 
 
 def test_resolved_adapter_for_postgres(platform: Path, monkeypatch: pytest.MonkeyPatch) -> None:

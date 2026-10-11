@@ -3,9 +3,8 @@
 Behaviour:
 
 Gates: the checks run only in platform mode, with the backend enabled, for a command
-that uses the database, with DB_URI set, and (until plan Phase 5, while nothing is
-recorded) only when `ENFORCE_DB_REQUIREMENTS` is on. Otherwise no store is opened, no
-driver is used and nothing is connected to.
+that uses the database, with DB_URI set. Otherwise no store is opened, no driver is
+used and nothing is connected to.
 
 Checks, in order; each failure exits 2 with a message and dbt is never started:
 1. connect (an unreachable server, or a SQLite file that cannot be created; the URI is
@@ -140,7 +139,6 @@ def colliding_platform(platform: Path, layout: LayoutBuilder) -> Path:
 def test_no_store_is_opened_behind_the_gates(
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     opened_stores: list[str],
     argv: list[str],
@@ -153,7 +151,6 @@ def test_no_store_is_opened_behind_the_gates(
 def test_standalone_mode_never_opens_a_store(
     lone_project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     opened_stores: list[str],
 ) -> None:
@@ -161,19 +158,6 @@ def test_standalone_mode_never_opens_a_store(
     monkeypatch.setenv("DBTX_DB_URI", "sqlite:////nowhere/dbtx.db")
     assert cli.main(["run", "--standalone-mode"]) == 0
     assert opened_stores == []
-
-
-def test_no_store_is_opened_until_enforced(
-    platform: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    fake_dbt: type[FakeDbtRunner],
-    opened_stores: list[str],
-) -> None:
-    # Until plan Phase 5, a dbt command makes no connection: nothing is recorded yet.
-    monkeypatch.chdir(platform)
-    assert cli.main(["run", "--project-dir", "jaffle-shop"]) == 0
-    assert opened_stores == []
-    assert not (platform / ".dbtx").exists()
 
 
 # --------------------------------------------------------------------------------------
@@ -186,7 +170,6 @@ def test_first_run_claims_the_project_name(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     opened_stores: list[str],
 ) -> None:
@@ -202,7 +185,6 @@ def test_next_run_from_the_same_folder_bumps_last_seen(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     clock: FakeClock,
 ) -> None:
@@ -218,7 +200,6 @@ def test_another_folders_claim_stops_the_run(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -238,7 +219,6 @@ def test_a_renamed_project_warns(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -257,7 +237,6 @@ def test_a_project_without_a_readable_name_is_not_claimed(
     platform: Path,
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
 ) -> None:
     layout.project(platform, "nameless", "unused", dbt_project_text="profile: x\n")
@@ -268,7 +247,7 @@ def test_a_project_without_a_readable_name_is_not_claimed(
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
-def test_a_command_without_a_project_claims_nothing(store: Store, enforce: None) -> None:
+def test_a_command_without_a_project_claims_nothing(store: Store) -> None:
     config = replace(store_config(store.uri, store.schema), command="db upgrade")
     assert startup.run_startup_checks(config) == []
     assert claims(store) == []
@@ -284,7 +263,6 @@ def test_g1_collision_without_a_claim_stops_the_run(
     store: Store,
     colliding_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -304,7 +282,6 @@ def test_g1_collision_while_holding_the_claim_runs_with_a_warning(
     store: Store,
     colliding_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
     clock: FakeClock,
@@ -329,7 +306,6 @@ def test_g1_collision_from_the_folder_without_the_claim_is_refused(
     store: Store,
     colliding_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -350,7 +326,6 @@ def test_an_uninitialised_sqlite_store_is_created_and_the_run_continues(
     empty_store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -370,7 +345,6 @@ def test_an_uninitialised_postgres_store_stops_the_run(
     empty_store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -390,7 +364,6 @@ def test_a_sqlite_store_behind_head_is_upgraded_and_the_run_continues(
     extra_revision: str,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -411,7 +384,6 @@ def test_a_postgres_store_behind_head_stops_the_run(
     extra_revision: str,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -432,7 +404,6 @@ def test_a_revision_this_dbtx_does_not_know_stops_the_run(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -451,7 +422,6 @@ def test_a_revision_this_dbtx_does_not_know_stops_the_run(
 @pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
 def test_db_init_and_upgrade_skip_the_revision_check(
     empty_store: Store,
-    enforce: None,
     command: str,
 ) -> None:
     config = replace(store_config(empty_store.uri, empty_store.schema), command=command)
@@ -465,7 +435,6 @@ def test_an_old_server_stops_the_run(
     store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -480,7 +449,6 @@ def test_an_old_server_stops_the_run(
 def test_an_unreachable_server_stops_the_run(
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -501,7 +469,6 @@ def test_a_sqlite_file_that_cannot_be_created_stops_the_run(
     platform: Path,
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:

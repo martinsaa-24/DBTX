@@ -29,12 +29,6 @@ from typing import Optional
 
 import yaml
 
-# Until recording exists (plan Phase 5), the failures that only protect the database
-# are printed as warnings instead of exiting 2: a missing DB_URI, a project-name
-# collision (guard G1) and "no platform found". Tests patch this to True. It is
-# deliberately not an option or env var, so it never becomes user-facing config.
-ENFORCE_DB_REQUIREMENTS = False
-
 CONFIG_FILE_NAME = "dbtx.conf"
 DBT_PROJECT_FILE_NAME = "dbt_project.yml"
 
@@ -249,7 +243,7 @@ def load_config(argv: list[str]) -> DbtxConfig:
         mode,
         mode_reason,
         platform_root,
-    ) = decide_mode(flag_values, standalone_requested, cwd, is_help, warnings)
+    ) = decide_mode(flag_values, standalone_requested, cwd, is_help)
 
     warn_about_unknown_env_vars(warnings)
 
@@ -302,9 +296,7 @@ def load_config(argv: list[str]) -> DbtxConfig:
             f"DB_URI= in {config_file}, or {ENV_DB_URI}), pass --db-backend disabled, "
             f"or pass --standalone-mode"
         )
-        if ENFORCE_DB_REQUIREMENTS:
-            raise ConfigError(message)
-        warnings.append(message + " (not enforced yet: nothing is recorded)")
+        raise ConfigError(message)
 
     # Step 7: make a relative SQLite path absolute.
     if db_uri.value is not None:
@@ -409,6 +401,8 @@ def command_name(argv: list[str]) -> str:
 def is_help_request(argv: list[str]) -> bool:
     if not argv:
         return True  # bare `dbtx` prints dbt's help
+    if argv == ["docs"]:
+        return True  # bare `dbtx docs` prints dbtx's docs help
     return "-h" in argv or "--help" in argv or "--version" in argv
 
 
@@ -422,7 +416,6 @@ def decide_mode(
     standalone_requested: bool,
     cwd: Path,
     is_help: bool,
-    warnings: list[str],
 ) -> tuple[str, str, Optional[Path]]:
     """Returns (mode, reason, platform root). First match wins (plan 6.5.1)."""
 
@@ -483,13 +476,7 @@ def decide_mode(
             f". Note: {cwd / CONFIG_FILE_NAME} is inside a dbt project; a project folder "
             f"is never a platform root"
         )
-    if ENFORCE_DB_REQUIREMENTS:
-        raise ConfigError(message)
-    warnings.append(message + ". Continuing in standalone mode (not enforced yet)")
-    for flag in (FLAG_DB_BACKEND, FLAG_DB_URI, FLAG_DB_SCHEMA, FLAG_DB_ADAPTER, FLAG_CONFIG_FILE):
-        if flag in flag_values:
-            warnings.append(f"{flag} is ignored in standalone mode")
-    return MODE_STANDALONE, "no platform found (fallback, not enforced yet)", None
+    raise ConfigError(message)
 
 
 def standalone_config(
@@ -651,6 +638,14 @@ def resolve_platform_project_dir(argv: list[str], platform_root: Path, cwd: Path
         raise ConfigError(
             f"project {project_dir} (from {source}) is not a direct child of the "
             f"platform root {platform_root}; project folders: {folders}"
+        )
+    if not project_dir.exists():
+        raise ConfigError(
+            f"{project_dir} (from {source}) does not exist; project folders: {folders}"
+        )
+    if not project_dir.is_dir():
+        raise ConfigError(
+            f"{project_dir} (from {source}) is not a directory; project folders: {folders}"
         )
     if not (project_dir / DBT_PROJECT_FILE_NAME).is_file():
         raise ConfigError(
@@ -1137,9 +1132,8 @@ def check_project_name_collisions(
     Returns the current project's dbt name (None if unreadable) and, when other folders
     declare it too, every folder declaring it (sorted). A collision between two other
     projects is only a warning, so a newly added folder cannot stop unrelated projects.
-    A collision involving the current project is decided by the start-up checks once
-    enforced, because the folder that holds the name in the database (guard G2) may
-    still run; until then it is a warning.
+    A collision involving the current project is decided by the start-up checks,
+    because the folder that holds the name in the database (guard G2) may still run.
     """
     folders_by_name: dict[str, list[str]] = {}
     for folder in project_folders(platform_root):
@@ -1157,8 +1151,6 @@ def check_project_name_collisions(
         message = project_name_collision_message(name, tuple(folders), platform_root)
         if name == current_name:
             colliding_folders = tuple(folders)
-            if not ENFORCE_DB_REQUIREMENTS:
-                warnings.append(message + " (not enforced yet)")
         else:
             warnings.append(message)
 

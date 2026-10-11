@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,7 @@ from dbt_common.events.types import Note
 
 from dbtx.reports import Report, ReportDefinitionError, discover_reports, render, write_sql
 from dbtx.scheduler import ReportScheduler
+from dbtx.store.recorder import Recorder
 from dbtx.templates import TemplateEngine, TemplateError, TemplateRegistry
 
 if TYPE_CHECKING:
@@ -30,9 +32,17 @@ if TYPE_CHECKING:
 
 
 def exit_code(result: dbtRunnerResult) -> int:
-    """Mirror dbt's own exit codes: 0 ok, 1 failure, 2 unhandled error."""
+    """Mirror dbt's own exit codes: 0 ok, 1 failure, 2 unhandled error.
+
+    A command line dbt refuses (no such command or option, a bad argument) is printed:
+    dbt's in-process runner returns it without printing, because it happens before
+    dbt's logging starts. Every other error dbt has already logged, so it is not
+    printed again.
+    """
     if result.success:
         return 0
+    if isinstance(result.exception, DbtUsageException):
+        print(f"dbtx: {result.exception} Try 'dbtx --help' for help.", file=sys.stderr)
     return 2 if result.exception is not None else 1
 
 
@@ -197,7 +207,18 @@ class Prepared:
     paths: OutputPaths
 
 
-def prepare(command: str, args: list[str], params: dict[str, Any]) -> Prepared:
+def invoke_recorded(config: DbtxConfig | None, argv: list[str]) -> dbtRunnerResult:
+    """Run dbt on `argv` as the invocation the store records (a no-op recorder when the
+    store is off). For the invocations that have no manifest from dbtx."""
+    recorder = Recorder.for_invocation(config)
+    result = dbtRunner(callbacks=[recorder.on_event]).invoke(argv)
+    recorder.finish(result)
+    return result
+
+
+def prepare(
+    command: str, args: list[str], params: dict[str, Any], config: DbtxConfig | None = None
+) -> Prepared:
     """Start-up shared by `build` and `compile`: resolve templates, parse the project and
     validate every report definition, all before dbt does any real work."""
     problem = usage_error(command, args)
@@ -219,8 +240,9 @@ def prepare(command: str, args: list[str], params: dict[str, Any]) -> Prepared:
             # fail instead -- `usage_error` above has already ruled out their own options.
             print(f"dbtx: cannot run dbt parse: {parsed.exception}")
             raise Stop(2)
-        # A real project error. Let dbt report it in its usual format.
-        raise Stop(exit_code(dbtRunner().invoke([command, *args])))
+        # A real project error. Let dbt report it in its usual format; that run is the
+        # one the store records (plan 5.5).
+        raise Stop(exit_code(invoke_recorded(config, [command, *args])))
     manifest = parsed.result
 
     try:
@@ -236,13 +258,15 @@ def prepare(command: str, args: list[str], params: dict[str, Any]) -> Prepared:
 def build(
     args: list[str], reports_enabled: bool = True, config: DbtxConfig | None = None
 ) -> int:
-    # `config` is accepted now so cli.main can pass it; nothing reads it until the
-    # store records runs (plan Phase 5).
+    """`dbt build`, rendering each selected report as soon as its exposure is ready.
+
+    The final build is the invocation the store records (`config`: a no-op recorder
+    when the store is off); dbtx's internal parse and ls are not recorded."""
     if not reports_enabled:
-        return exit_code(dbtRunner().invoke(["build", *args]))
+        return exit_code(invoke_recorded(config, ["build", *args]))
     params = explicit_params("build", args)
     try:
-        prep = prepare("build", args, params)
+        prep = prepare("build", args, params, config)
     except Stop as stop:
         return stop.code
 
@@ -252,18 +276,30 @@ def build(
         for uid, report in prep.reports.items()
         if uid in run_set
     ]
+    recorder = Recorder.for_invocation(config)
     if not plans:
-        return exit_code(dbtRunner(manifest=prep.manifest).invoke(["build", *args]))
+        recorder.use_manifest(prep.manifest, prep.reports, {})
+        result = dbtRunner(manifest=prep.manifest, callbacks=[recorder.on_event]).invoke(
+            ["build", *args]
+        )
+        recorder.finish(result)
+        return exit_code(result)
 
+    renders = {}
+    for report, _ in plans:
+        renders[report.exposure_id] = report
+    recorder.use_manifest(prep.manifest, prep.reports, renders)
     adapter_type = prep.manifest.metadata.adapter_type
     scheduler = ReportScheduler(
         plans,
         render=lambda report: query_and_render(adapter_type, report, prep.paths, prep.templates),
+        on_change=recorder.report_changed,
     )
-    result = dbtRunner(manifest=prep.manifest, callbacks=[scheduler.on_event]).invoke(
-        ["build", *args]
-    )
+    result = dbtRunner(
+        manifest=prep.manifest, callbacks=[recorder.on_event, scheduler.on_event]
+    ).invoke(["build", *args])
     scheduler.finish()
+    recorder.finish(result)
 
     print_summary(scheduler)
     report_errors = any(o.status == "error" for o in scheduler.outcomes.values())
@@ -278,9 +314,9 @@ def compile_project(
     params = explicit_params("compile", args)
     if not reports_enabled or "inline" in params:
         # `--inline` compiles one ad-hoc query; project reports do not apply.
-        return exit_code(dbtRunner().invoke(["compile", *args]))
+        return exit_code(invoke_recorded(config, ["compile", *args]))
     try:
-        prep = prepare("compile", args, params)
+        prep = prepare("compile", args, params, config)
     except Stop as stop:
         return stop.code
 
@@ -288,7 +324,12 @@ def compile_project(
     selected = sorted(
         (r for uid, r in prep.reports.items() if uid in run_set), key=lambda r: r.name
     )
-    result = dbtRunner(manifest=prep.manifest).invoke(["compile", *args])
+    recorder = Recorder.for_invocation(config)
+    recorder.use_manifest(prep.manifest, prep.reports, {})
+    result = dbtRunner(manifest=prep.manifest, callbacks=[recorder.on_event]).invoke(
+        ["compile", *args]
+    )
+    recorder.finish(result)
 
     # Report SQL depends only on the manifest, so it is written even if dbt's own
     # compile fails; the exit code still reflects dbt's result.

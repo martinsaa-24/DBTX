@@ -29,6 +29,24 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.live)
 
 
+@pytest.fixture(autouse=True)
+def fresh_duckdb_environment() -> Iterator[None]:
+    """Each test uses its own warehouse.
+
+    dbt-duckdb keeps one DuckDB environment per process and reuses it while the
+    credentials compare equal. The example profile's path is relative
+    (`jaffle_shop.duckdb`), so without this every in-process test would keep writing to
+    the first test's warehouse, and fail once pytest deletes that test's directory.
+    """
+    yield
+    from dbt.adapters.duckdb.connections import DuckDBConnectionManager
+
+    with DuckDBConnectionManager._LOCK:
+        if DuckDBConnectionManager._ENV is not None:
+            DuckDBConnectionManager._ENV.close()
+            DuckDBConnectionManager._ENV = None
+
+
 @contextmanager
 def chdir(path: Path) -> Iterator[None]:
     previous = Path.cwd()
@@ -40,7 +58,11 @@ def chdir(path: Path) -> Iterator[None]:
 
 
 class Project:
-    """A throwaway copy of examples/jaffle_shop; `dbtx(...)` runs inside it."""
+    """A throwaway copy of examples/jaffle_shop; `dbtx(...)` runs inside it.
+
+    In standalone mode: run from inside the project folder there is no platform, and
+    standalone mode never touches a database (plan Phase 5). The store's own live tests
+    run the project on a platform instead (test_store_recording.py)."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -50,7 +72,7 @@ class Project:
 
     def dbtx(self, *args: str) -> int:
         with chdir(self.root):
-            return main([*args, "--no-use-colors"])
+            return main([*args, "--no-use-colors", "--standalone-mode"])
 
     def write(self, relative: str, content: str) -> None:
         path = self.root / relative
@@ -90,7 +112,9 @@ def _build_example(root: Path) -> Project:
     # In a subprocess: dbt-duckdb keeps the database file open for the life of the
     # process, and Windows would then refuse to copy it for the `project` fixture.
     subprocess.run(
-        [sys.executable, "-m", "dbtx", "build", "--quiet"], cwd=project.root, check=True
+        [sys.executable, "-m", "dbtx", "build", "--quiet", "--standalone-mode"],
+        cwd=project.root,
+        check=True,
     )
     return project
 

@@ -1,9 +1,7 @@
 """Start-up checks: the database part of plan 6.6 step 8, run before dbt starts.
 
-Gates, all required, else nothing is opened or connected to:
-* platform mode, backend enabled, a command that uses the database, DB_URI set
-* `ENFORCE_DB_REQUIREMENTS` (until plan Phase 5): while nothing is recorded, a dbt
-  command makes no connection at all
+Gates, all required, else nothing is opened or connected to: platform mode, backend
+enabled, a command that uses the database, DB_URI set.
 
 Checks, in order, each a StoreError (exit 2) on failure:
 1. connect
@@ -48,8 +46,6 @@ def run_startup_checks(config: DbtxConfig) -> list[str]:
     if not config.uses_database:
         return []
     if config.db_uri is None or config.db_uri.value is None:
-        return []
-    if not dbtx_config.ENFORCE_DB_REQUIREMENTS:
         return []
 
     store = open_store(config)

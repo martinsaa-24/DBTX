@@ -27,6 +27,10 @@ of other functionality leveraging DBT's parsed manifest data:
     carried forward 3 node(s) from previous runs
     history limit 3, wrote docs/dbtx_runtime.json
   ```
+* **Run History**:  
+  every run of a platform project recorded in a database (SQLite or Postgres): each
+  invocation, the result of every node, the project's nodes over time, and every report
+  render. See [Run history store](#run-history-store).
 * **Docs Server**:  
   the generated docs served over uvicorn, concurrently and without `chdir`-ing the process,
   with the cache validators dbt's single-threaded static server leaves out.
@@ -366,8 +370,12 @@ dbtx config                                                 # what was resolved,
   `--profiles-dir` or `DBT_PROFILES_DIR` pointing anywhere else is an error, so hosts
   that export `DBT_PROFILES_DIR` must unset it for platform runs. `--profile` and
   `--target` work as usual.
-- Each project on a platform needs a unique `name:` in `dbt_project.yml`; dbtx warns
-  when two folders declare the same one.
+- Each project on a platform needs a unique `name:` in `dbt_project.yml`. When two
+  folders declare the same one, a recorded command (below) from either stops (exit 2),
+  unless that folder
+  already owns the name in the database (below): then it runs, with a warning naming
+  the folder that will be refused. A collision between two *other* projects is only a
+  warning.
 - **Project-name claims.** The database records which folder owns each dbt project
   name, so one name is never written by two folders, even on different hosts. The
   first run of a name claims it for its folder; a run from another folder is refused.
@@ -401,7 +409,8 @@ then the environment. `.env` files are never read.
   unknown or duplicate keys, `export` and `${...}` are errors. See
   [examples/dbtx.conf.example](examples/dbtx.conf.example). A working copy,
   [examples/dbtx.conf](examples/dbtx.conf), makes `examples/` a platform root: run
-  `dbtx build --project-dir jaffle_shop` from there.
+  `dbtx build --platform-dir ..` from `examples/jaffle_shop` (from the project folder,
+  so dbt finds the example's DuckDB file there).
 - `DB_URI` is a SQLAlchemy URL: `sqlite:///path.db` or
   `postgresql+psycopg://user@host:5432/dbname` (needs `pip install 'dbtx[postgres]'`).
   A relative SQLite path is relative to the config file's directory. Leave the password
@@ -411,10 +420,61 @@ then the environment. `.env` files are never read.
 - `DB_ADAPTER` names the store adapter that talks to the database. Leave it unset to
   use the default for `DB_URI` (the built-in `sqlite` or `postgresql`). Set it only to
   use an adapter plugin instead (see below).
-- The database backend does not record anything yet. Until it does, a missing
-  `DB_URI`, a duplicate project name, and running outside a platform without
-  `--standalone-mode` are warnings, not errors, and dbt commands do not connect to
-  the database (no claim is made). `dbtx db` commands always use it.
+- With the backend enabled, a command that records runs (below) needs `DB_URI`;
+  without one it exits 2 before dbt starts. Commands that do not touch the database
+  (`ls`, `debug`, `deps`, `docs serve`, `templates`, ...) never need it, and
+  `dbtx config` / `dbtx db status` report a missing URI instead of failing.
+
+> **Upgrading from a version without run history.** dbtx now records every run, so
+> two things that used to print a warning stop the command with exit 2:
+> - running outside a platform (for example `cd jaffle-shop && dbtx build`): add
+>   `--standalone-mode` to keep running a single project without the platform, or set
+>   up a platform root with a `dbtx.conf`;
+> - a platform with no `DB_URI`: set one, or pass `--db-backend disabled` (or
+>   `DB_BACKEND=disabled` in `dbtx.conf`) to run without recording.
+
+#### Run history store
+
+In platform mode with the backend enabled, dbtx records each run of these commands:
+`build`, `compile`, `run`, `test`, `seed`, `snapshot`, `parse`, `run-operation`,
+`source freshness` and `docs generate`. Other commands (`ls`, `debug`, `show`, ...)
+are not recorded. Standalone mode and `--db-backend disabled` record nothing and never
+connect to a database.
+
+What one run stores:
+
+- **The invocation:** dbt's invocation id (the one in `target/run_results.json`), the
+  command, start and end time, result (`success`, `warning` or `failure`), dbt version,
+  adapter type, target (dbt's resolved target, even without `--target`), selector,
+  dbt's `args` (with `DBT_ENV_SECRET_*` values scrubbed, as dbt writes them to
+  `run_results.json`; any other secret passed as a plain var is stored as dbt writes
+  it), the job id (`--vars '{job_id: ...}'`), user and host, and the sha256 of the
+  `manifest.json` the run wrote.
+- **A result for every node** dbt ran: status, timings, thread, message, failures,
+  rows affected and adapter response.
+- **The project's nodes over time:** every model, source, seed, snapshot, test, unit
+  test and exposure, each checksum it has had, the edges between them, and when each
+  was first and last seen and removed.
+- **Reports and their renders** (`dbtx build` / `compile`): each report's definition,
+  and in a build each selected report's render: `rendered` with its files, or
+  `skipped` / `error` with the reason.
+
+How it behaves:
+
+- Everything is checked **before dbt starts**: the configuration, the connection, the
+  schema revision (SQLite is created and migrated automatically; Postgres needs
+  `dbtx db init` / `upgrade`) and the project-name claim. A problem exits 2 and dbt
+  never runs.
+- Once dbt has started, **recording never changes the run**: the console output and
+  the exit code are dbt's (and dbtx's reports'). If a write fails, dbtx prints one
+  `dbtx: run history not recorded (invocation ...)` warning and the run carries on.
+- A run whose project fails to parse (broken YAML, missing `profiles.yml`) is recorded
+  as a `failure` with dbt's error message. Its nodes and reports are left as they were.
+  When dbt failed before it loaded the profile, the target and adapter type are stored
+  as `unknown`.
+- `--no-write-json` still records everything; only the manifest hash is left empty.
+- Keep a SQLite `DB_URI` outside dbt's clean targets (`target/` by default), or
+  `dbt clean` deletes the history; `dbtx db status` warns about it.
 
 #### Setting up the database: `dbtx db init`, `upgrade`, `status`
 
@@ -615,7 +675,8 @@ Three things to know when working through this:
 
 ```console
 uv sync                                  # or: pip install -e '.[serve]' dbt-duckdb pytest httpx
-cd examples/jaffle_shop && uv run dbtx build
+cd examples/jaffle_shop && uv run dbtx build --platform-dir ..    # history in examples/.dbtx/
+cd examples/jaffle_shop && uv run dbtx build --standalone-mode   # or without the platform
 ```
 
 ### Example project
@@ -660,7 +721,9 @@ pytest                        # ~80s: also builds the example project in temp co
   in-process without binding a port; `test_docs_server_cli.py` covers its option parsing.
 - **Live tests** (`tests/live`) run `dbtx` for real, end to end, on throwaway copies of
   the example project. They cover selection, failing tests, failing models, report errors
-  and passthrough. `test_docs_server_boot.py` is also marked `server` and needs no
+  and passthrough, in standalone mode. `test_store_recording.py` runs the project on a
+  throwaway platform and checks what the run history store holds against dbt's own
+  artifacts. `test_docs_server_boot.py` is also marked `server` and needs no
   warehouse -- it boots the docs server on a loopback socket (`pytest -m server`).
 - After changing the example project, refresh the fixture. A test fails while it is stale.
 

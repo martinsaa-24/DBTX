@@ -66,17 +66,17 @@ def test_warnings_go_to_stderr(
     fake_dbt: type[FakeDbtRunner],
 ) -> None:
     monkeypatch.chdir(lone_project)
-    cli.main(["ls"])
+    monkeypatch.setenv("DBTX_DB_URL", "sqlite:///x.db")
+    cli.main(["ls", "--standalone-mode"])
     captured = capsys.readouterr()
-    assert "dbtx: warning: no dbtx platform found" in captured.err
-    assert "no dbtx platform found" not in captured.out
+    assert "dbtx: warning: unknown environment variable DBTX_DB_URL is ignored" in captured.err
+    assert "DBTX_DB_URL" not in captured.out
 
 
 @pytest.mark.parametrize("argv", [["--help"], ["-h"], []])
 def test_help_works_with_no_configuration(
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
-    enforce: None,
     fake_dbt: type[FakeDbtRunner],
     argv: list[str],
 ) -> None:
