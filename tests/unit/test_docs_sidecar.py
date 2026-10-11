@@ -9,12 +9,12 @@ import pytest
 
 from dbtx.docs import injector, sidecar
 from dbtx.docs.catalog import read_job_id
-from dbtx.docs.patch import patch, status
+from dbtx.docs.patch import PatchResult, patch, status
 
 NODES = ["a", "b", "c", "d", "e", "f"]
 
 
-def _manifest(names, invocation="docs-inv", checksums=None) -> dict:
+def _manifest(names: list[str], invocation: str = "docs-inv", checksums: dict[str, str] | None = None) -> dict:
     checksums = checksums or {}
     return {
         "metadata": {"invocation_id": invocation, "generated_at": "2026-01-01T00:00:00Z"},
@@ -28,8 +28,9 @@ def _manifest(names, invocation="docs-inv", checksums=None) -> dict:
     }
 
 
-def _run_results(names, invocation, generated_at, status_="success",
-                 job_id=None, args_vars=None, env=None) -> dict:
+def _run_results(names: list[str], invocation: str, generated_at: str, status_: str = "success",
+                 job_id: str | None = None, args_vars: dict | None = None,
+                 env: dict[str, str] | None = None) -> dict:
     """Mirrors what dbt writes: `--vars` land verbatim in top-level `args`."""
     if args_vars is None:
         args_vars = {"job_id": job_id} if job_id is not None else {}
@@ -71,8 +72,9 @@ def docs_loc(tmp_path: Path) -> Path:
     return loc
 
 
-def _do_run(tmp_path: Path, docs_loc: Path, names, invocation, generated_at,
-            job_id=None, args_vars=None, env=None, **kw):
+def _do_run(tmp_path: Path, docs_loc: Path, names: list[str], invocation: str, generated_at: str,
+            job_id: str | None = None, args_vars: dict | None = None,
+            env: dict[str, str] | None = None, **kw: object) -> PatchResult:
     run_loc = tmp_path / "loc_run"
     _write(run_loc, "manifest.json", _manifest(NODES, invocation=invocation))
     _write(run_loc, "run_results.json",
@@ -85,12 +87,12 @@ def _recorded(docs_loc: Path) -> dict:
     return json.loads((docs_loc / sidecar.SIDECAR_FILENAME).read_text(encoding="utf-8"))["nodes"]
 
 
-def test_state0_has_no_sidecar(docs_loc: Path):
+def test_state0_has_no_sidecar(docs_loc: Path) -> None:
     assert not (docs_loc / sidecar.SIDECAR_FILENAME).exists()
     assert status(docs_loc).with_runs == 0
 
 
-def test_partial_runs_accumulate(tmp_path: Path, docs_loc: Path):
+def test_partial_runs_accumulate(tmp_path: Path, docs_loc: Path) -> None:
     # STATE-1: run 1 covers a, b, c
     _do_run(tmp_path, docs_loc, ["a", "b", "c"], "inv-1", "2026-01-02T00:00:00Z")
     assert set(_recorded(docs_loc)) == {"model.proj.a", "model.proj.b", "model.proj.c"}
@@ -109,7 +111,7 @@ def test_partial_runs_accumulate(tmp_path: Path, docs_loc: Path):
     assert len(recorded["model.proj.d"]["runs"]) == 1
 
 
-def test_history_is_capped_and_configurable(tmp_path: Path, docs_loc: Path):
+def test_history_is_capped_and_configurable(tmp_path: Path, docs_loc: Path) -> None:
     for i in range(1, 6):
         _do_run(tmp_path, docs_loc, ["a"], f"inv-{i}", f"2026-01-0{i}T00:00:00Z", history_limit=3)
     runs = _recorded(docs_loc)["model.proj.a"]["runs"]
@@ -126,13 +128,13 @@ def test_history_is_capped_and_configurable(tmp_path: Path, docs_loc: Path):
     assert len(_recorded(docs_loc)["model.proj.a"]["runs"]) == 1
 
 
-def test_repatching_same_run_is_idempotent(tmp_path: Path, docs_loc: Path):
+def test_repatching_same_run_is_idempotent(tmp_path: Path, docs_loc: Path) -> None:
     _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z")
     _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z")
     assert len(_recorded(docs_loc)["model.proj.a"]["runs"]) == 1
 
 
-def test_older_run_does_not_roll_back(tmp_path: Path, docs_loc: Path):
+def test_older_run_does_not_roll_back(tmp_path: Path, docs_loc: Path) -> None:
     _do_run(tmp_path, docs_loc, ["a"], "inv-2", "2026-01-03T00:00:00Z")
     result = _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z")
 
@@ -143,7 +145,7 @@ def test_older_run_does_not_roll_back(tmp_path: Path, docs_loc: Path):
     assert forced.tally.patched == ["model.proj.a"]
 
 
-def test_nodes_absent_from_docs_are_ignored(tmp_path: Path, docs_loc: Path):
+def test_nodes_absent_from_docs_are_ignored(tmp_path: Path, docs_loc: Path) -> None:
     run_loc = tmp_path / "loc_run"
     _write(run_loc, "manifest.json", _manifest(NODES + ["ghost"]))
     _write(run_loc, "run_results.json",
@@ -156,7 +158,7 @@ def test_nodes_absent_from_docs_are_ignored(tmp_path: Path, docs_loc: Path):
     assert "model.proj.ghost" not in _recorded(docs_loc)
 
 
-def test_checksum_change_marks_result_stale(tmp_path: Path, docs_loc: Path):
+def test_checksum_change_marks_result_stale(tmp_path: Path, docs_loc: Path) -> None:
     _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z")
     assert _recorded(docs_loc)["model.proj.a"]["runs"][0]["stale"] is False
 
@@ -170,7 +172,7 @@ def test_checksum_change_marks_result_stale(tmp_path: Path, docs_loc: Path):
     assert status(docs_loc).stale == 1
 
 
-def test_overlay_injection_is_idempotent(docs_loc: Path):
+def test_overlay_injection_is_idempotent(docs_loc: Path) -> None:
     injector.install(docs_loc)
     injector.install(docs_loc)
 
@@ -184,7 +186,7 @@ def test_overlay_injection_is_idempotent(docs_loc: Path):
     assert not (docs_loc / injector.ASSET_FILENAME).exists()
 
 
-def test_script_tag_carries_the_asset_version(docs_loc: Path):
+def test_script_tag_carries_the_asset_version(docs_loc: Path) -> None:
     injector.install(docs_loc)
 
     html = (docs_loc / "index.html").read_text(encoding="utf-8")
@@ -198,7 +200,10 @@ def test_script_tag_carries_the_asset_version(docs_loc: Path):
     assert (docs_loc / "index.html").read_text(encoding="utf-8") == html
 
 
-def test_asset_version_tracks_asset_contents(docs_loc: Path, monkeypatch):
+def test_asset_version_tracks_asset_contents(
+    docs_loc: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     injector.install(docs_loc)
     before = (docs_loc / "index.html").read_text(encoding="utf-8")
 
@@ -217,7 +222,7 @@ def test_asset_version_tracks_asset_contents(docs_loc: Path, monkeypatch):
     assert (docs_loc / injector.ASSET_FILENAME).read_text(encoding="utf-8") == new_source
 
 
-def test_patch_survives_docs_regeneration(tmp_path: Path, docs_loc: Path):
+def test_patch_survives_docs_regeneration(tmp_path: Path, docs_loc: Path) -> None:
     """`dbt docs generate` overwrites manifest.json but not the sidecar."""
     _do_run(tmp_path, docs_loc, ["a", "b"], "inv-1", "2026-01-02T00:00:00Z")
     _write(docs_loc, "manifest.json", _manifest(NODES, invocation="docs-inv-2"))
@@ -256,16 +261,16 @@ def test_patch_survives_docs_regeneration(tmp_path: Path, docs_loc: Path):
         ({}, None),
     ],
 )
-def test_read_job_id_sources(rr, expected):
+def test_read_job_id_sources(rr: dict, expected: str | None) -> None:
     assert read_job_id(rr) == expected
 
 
-def test_read_job_id_var_name_is_configurable():
+def test_read_job_id_var_name_is_configurable() -> None:
     rr = {"args": {"vars": {"ci_run": "RUN-9", "job_id": "ignored"}}}
     assert read_job_id(rr, "ci_run") == "RUN-9"
 
 
-def test_job_id_recorded_for_current_and_previous_runs(tmp_path: Path, docs_loc: Path):
+def test_job_id_recorded_for_current_and_previous_runs(tmp_path: Path, docs_loc: Path) -> None:
     result = _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z",
                      job_id="123v1")
     assert result.job_id == "123v1"
@@ -281,14 +286,14 @@ def test_job_id_recorded_for_current_and_previous_runs(tmp_path: Path, docs_loc:
     ]
 
 
-def test_run_without_the_var_records_no_job_id(tmp_path: Path, docs_loc: Path):
+def test_run_without_the_var_records_no_job_id(tmp_path: Path, docs_loc: Path) -> None:
     result = _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z")
 
     assert result.job_id is None
     assert _recorded(docs_loc)["model.proj.a"]["runs"][0]["job_id"] is None
 
 
-def test_job_id_var_name_flows_through_patch(tmp_path: Path, docs_loc: Path):
+def test_job_id_var_name_flows_through_patch(tmp_path: Path, docs_loc: Path) -> None:
     result = _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z",
                      args_vars={"ci_run": "RUN-9"}, job_id_var="ci_run")
 
@@ -296,14 +301,14 @@ def test_job_id_var_name_flows_through_patch(tmp_path: Path, docs_loc: Path):
     assert _recorded(docs_loc)["model.proj.a"]["runs"][0]["job_id"] == "RUN-9"
 
 
-def test_job_id_read_from_env_fallback(tmp_path: Path, docs_loc: Path):
+def test_job_id_read_from_env_fallback(tmp_path: Path, docs_loc: Path) -> None:
     result = _do_run(tmp_path, docs_loc, ["a"], "inv-1", "2026-01-02T00:00:00Z",
                      env={"job_id": "from-env"})
 
     assert result.job_id == "from-env"
 
 
-def test_sidecar_without_job_ids_still_hydrates(tmp_path: Path, docs_loc: Path):
+def test_sidecar_without_job_ids_still_hydrates(tmp_path: Path, docs_loc: Path) -> None:
     """History written before job ids were tracked must survive a patch.
 
     The field is additive and the schema version is deliberately unchanged, so

@@ -98,7 +98,7 @@ def _catalog(docs_loc: Path) -> DocsCatalog:
     return catalog
 
 
-def test_catalog_includes_exposures(docs_loc: Path):
+def test_catalog_includes_exposures(docs_loc: Path) -> None:
     """Exposures live outside `nodes` in the manifest but share its keyspace here,
     so run results and reports can be hung on them."""
     nodes = _catalog(docs_loc).nodes
@@ -106,13 +106,13 @@ def test_catalog_includes_exposures(docs_loc: Path):
     assert MODEL in nodes
 
 
-def test_exposure_run_results_are_no_longer_ignored(docs_loc: Path, run_loc: Path):
+def test_exposure_run_results_are_no_longer_ignored(docs_loc: Path, run_loc: Path) -> None:
     result = patch(docs_loc=docs_loc, run_loc=run_loc)
     assert EXPOSURE in result.tally.patched
     assert EXPOSURE not in result.tally.ignored
 
 
-def test_exposure_is_never_stale(docs_loc: Path, run_loc: Path):
+def test_exposure_is_never_stale(docs_loc: Path, run_loc: Path) -> None:
     """An exposure has no SQL, so it has no checksum on either side and must not
     be flagged against the name-derived fallback."""
     patch(docs_loc=docs_loc, run_loc=run_loc)
@@ -120,7 +120,7 @@ def test_exposure_is_never_stale(docs_loc: Path, run_loc: Path):
     assert entry["runs"][0]["stale"] is False
 
 
-def test_discovery_finds_html_and_optional_csv(docs_loc: Path):
+def test_discovery_finds_html_and_optional_csv(docs_loc: Path) -> None:
     _write_report(docs_loc, "beverage_leaderboard", csv=True)
     _write_report(docs_loc, "store_scorecard", csv=False)
 
@@ -133,7 +133,7 @@ def test_discovery_finds_html_and_optional_csv(docs_loc: Path):
     assert found["exposure.proj.store_scorecard"].csv is None
 
 
-def test_discovery_ignores_files_not_matching_an_exposure(docs_loc: Path):
+def test_discovery_ignores_files_not_matching_an_exposure(docs_loc: Path) -> None:
     """Looked up per exposure by name, so a stray file is never attributed to one."""
     _write_report(docs_loc, "beverage_leaderboard")
     _write_report(docs_loc, "something_else")
@@ -143,13 +143,13 @@ def test_discovery_ignores_files_not_matching_an_exposure(docs_loc: Path):
     assert set(found) == {EXPOSURE}
 
 
-def test_discovery_skips_models_and_a_missing_directory(docs_loc: Path):
+def test_discovery_skips_models_and_a_missing_directory(docs_loc: Path) -> None:
     assert exposure_reports.discover(_catalog(docs_loc).nodes, docs_loc) == {}
     _write_report(docs_loc, "product_mix")  # a model's name, not an exposure's
     assert exposure_reports.discover(_catalog(docs_loc).nodes, docs_loc) == {}
 
 
-def test_patch_persists_the_report_for_the_overlay(docs_loc: Path, run_loc: Path):
+def test_patch_persists_the_report_for_the_overlay(docs_loc: Path, run_loc: Path) -> None:
     _write_report(docs_loc, "beverage_leaderboard", csv=True)
 
     result = patch(docs_loc=docs_loc, run_loc=run_loc)
@@ -160,7 +160,7 @@ def test_patch_persists_the_report_for_the_overlay(docs_loc: Path, run_loc: Path
     assert entry["report"]["csv"] == f"{REPORTS_SUBDIR}/beverage_leaderboard.csv"
 
 
-def test_a_deleted_report_disappears_from_the_sidecar(docs_loc: Path, run_loc: Path):
+def test_a_deleted_report_disappears_from_the_sidecar(docs_loc: Path, run_loc: Path) -> None:
     """Reports are rediscovered each patch rather than hydrated, so the sidecar
     never advertises a file the overlay would 404 on."""
     html = _write_report(docs_loc, "beverage_leaderboard")
@@ -175,13 +175,13 @@ def test_a_deleted_report_disappears_from_the_sidecar(docs_loc: Path, run_loc: P
     assert entry["runs"], "run history must survive the report going away"
 
 
-def test_status_counts_reports(docs_loc: Path, run_loc: Path):
+def test_status_counts_reports(docs_loc: Path, run_loc: Path) -> None:
     _write_report(docs_loc, "beverage_leaderboard")
     patch(docs_loc=docs_loc, run_loc=run_loc)
     assert status(docs_loc).reports_found == 1
 
 
-def test_report_asset_round_trips():
+def test_report_asset_round_trips() -> None:
     asset = ReportAsset(html="reports/x.html", csv="reports/x.csv",
                         generated_at="2026-01-01T00:00:00Z", size_bytes=12)
     assert ReportAsset.from_dict(asset.to_dict()) == asset

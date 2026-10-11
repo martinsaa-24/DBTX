@@ -73,14 +73,14 @@ def running(docs_loc: Path) -> Iterator[str]:
             sock.close()
 
 
-def test_server_boots_and_serves_index(docs_loc: Path):
+def test_server_boots_and_serves_index(docs_loc: Path) -> None:
     with running(docs_loc) as base_url:
         response = httpx.get(f"{base_url}/", timeout=5.0)
         assert response.status_code == 200
         assert "manifest.json" in response.text
 
 
-def test_server_serves_concurrent_requests(docs_loc: Path):
+def test_server_serves_concurrent_requests(docs_loc: Path) -> None:
     """What dbt's single-threaded TCPServer cannot do."""
     with running(docs_loc) as base_url:
         with httpx.Client(base_url=base_url, timeout=10.0) as client:
@@ -90,7 +90,7 @@ def test_server_serves_concurrent_requests(docs_loc: Path):
     assert codes == [200] * 10
 
 
-def test_serving_does_not_chdir(docs_loc: Path):
+def test_serving_does_not_chdir(docs_loc: Path) -> None:
     """dbt's ServeTask chdirs the process into target/ and never restores it."""
     before = os.getcwd()
     with running(docs_loc):
@@ -98,7 +98,7 @@ def test_serving_does_not_chdir(docs_loc: Path):
     assert os.getcwd() == before
 
 
-def test_serving_a_busy_port_raises_rather_than_exiting(docs_loc: Path):
+def test_serving_a_busy_port_raises_rather_than_exiting(docs_loc: Path) -> None:
     """A second serve on a live port is a ServerError, not uvicorn's sys.exit(3).
 
     `serve` is the path the CLI takes, so this is what keeps a busy port on the

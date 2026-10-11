@@ -27,15 +27,20 @@ import sqlalchemy as sa
 from sqlalchemy.pool import StaticPool
 
 from ...conftest import check_postgres_uri_option
-from .conftest import POSTGRES_SESSION_TIME_ZONE, reflection_schema
-
+from .conftest import (
+    ON_POSTGRES,
+    ON_SQLITE_FILE,
+    ON_SQLITE_MEMORY,
+    POSTGRES_SESSION_TIME_ZONE,
+    reflection_schema,
+)
 
 # --------------------------------------------------------------------------------------
 # Every backend
 # --------------------------------------------------------------------------------------
 
 
-def test_engine_starts_with_an_empty_database(engine):
+def test_engine_starts_with_an_empty_database(engine: sa.Engine) -> None:
     inspector = sa.inspect(engine)
 
     assert inspector.get_table_names(schema=reflection_schema(engine)) == []
@@ -46,8 +51,8 @@ def test_engine_starts_with_an_empty_database(engine):
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("engine", ["sqlite-memory"], indirect=True)
-def test_sqlite_memory_is_one_database_across_connections(engine):
+@pytest.mark.parametrize("engine", ON_SQLITE_MEMORY, indirect=True)
+def test_sqlite_memory_is_one_database_across_connections(engine: sa.Engine) -> None:
     assert engine.dialect.name == "sqlite"
     assert isinstance(engine.pool, StaticPool)
 
@@ -61,8 +66,8 @@ def test_sqlite_memory_is_one_database_across_connections(engine):
     assert rows == [1]
 
 
-@pytest.mark.parametrize("engine", ["sqlite-file"], indirect=True)
-def test_sqlite_file_lives_in_the_tests_own_tmp_path(engine, tmp_path):
+@pytest.mark.parametrize("engine", ON_SQLITE_FILE, indirect=True)
+def test_sqlite_file_lives_in_the_tests_own_tmp_path(engine: sa.Engine, tmp_path: Path) -> None:
     database_file = Path(engine.url.database)
 
     assert engine.dialect.name == "sqlite"
@@ -80,13 +85,13 @@ def test_sqlite_file_lives_in_the_tests_own_tmp_path(engine, tmp_path):
 
 
 @pytest.mark.postgres
-def test_postgres_server_is_available_without_configuration(postgres_uri):
+def test_postgres_server_is_available_without_configuration(postgres_uri: str) -> None:
     assert postgres_uri, "no Postgres server: postgres_uri is empty"
     assert sa.make_url(postgres_uri).drivername == "postgresql+psycopg"
 
 
 @pytest.mark.postgres
-def test_postgres_server_is_utf8(postgres_uri):
+def test_postgres_server_is_utf8(postgres_uri: str) -> None:
     assert postgres_uri, "no Postgres server: postgres_uri is empty"
     engine = sa.create_engine(postgres_uri)
     try:
@@ -98,9 +103,8 @@ def test_postgres_server_is_utf8(postgres_uri):
     assert encoding == "UTF8"
 
 
-@pytest.mark.postgres
-@pytest.mark.parametrize("engine", ["postgres"], indirect=True)
-def test_postgres_engine_uses_its_own_schema_and_a_non_utc_time_zone(engine):
+@pytest.mark.parametrize("engine", ON_POSTGRES, indirect=True)
+def test_postgres_engine_uses_its_own_schema_and_a_non_utc_time_zone(engine: sa.Engine) -> None:
     with engine.connect() as conn:
         time_zone = conn.execute(sa.text("SHOW timezone")).scalar_one()
         schema_exists = conn.execute(
@@ -124,11 +128,11 @@ def test_postgres_engine_uses_its_own_schema_and_a_non_utc_time_zone(engine):
     [None, "postgresql+psycopg://user:password@localhost:5432/dbtx_test"],
     ids=["not_given", "a_uri"],
 )
-def test_postgres_uri_option_accepts_no_value_or_a_uri(value):
+def test_postgres_uri_option_accepts_no_value_or_a_uri(value: str | None) -> None:
     check_postgres_uri_option(value)
 
 
 @pytest.mark.parametrize("value", ["", "   "], ids=["empty", "blank"])
-def test_postgres_uri_option_rejects_a_blank_value(value):
+def test_postgres_uri_option_rejects_a_blank_value(value: str) -> None:
     with pytest.raises(pytest.UsageError, match="--postgres-uri"):
         check_postgres_uri_option(value)

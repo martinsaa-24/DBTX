@@ -1,10 +1,12 @@
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from dbtx.scheduler import ReportScheduler
+from dbtx.reports import Report
+from dbtx.scheduler import Outcome, ReportScheduler
 
 EXPOSURE = "exposure.jaffle_shop.top_customers"
 TEST_A = "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1"
@@ -12,14 +14,18 @@ TEST_B = "test.jaffle_shop.warn_high_frequency_customers"
 
 
 @pytest.fixture
-def report(reports):
+def report(reports: dict[str, Report]) -> Report:
     return reports["top_customers"]
 
 
-def make(report, gate_tests=(TEST_A, TEST_B), render=None):
+def make(
+    report: Report,
+    gate_tests: tuple[str, ...] = (TEST_A, TEST_B),
+    render: Callable[[Report], list[Path]] | None = None,
+) -> tuple[ReportScheduler, list[str]]:
     rendered = []
 
-    def default_render(r):
+    def default_render(r: Report) -> list[Path]:
         rendered.append(r.name)
         return [Path(f"{r.name}.html")]
 
@@ -27,12 +33,12 @@ def make(report, gate_tests=(TEST_A, TEST_B), render=None):
     return scheduler, rendered
 
 
-def outcome(scheduler):
+def outcome(scheduler: ReportScheduler) -> Outcome:
     [o] = scheduler.outcomes.values()
     return o
 
 
-def test_renders_after_exposure_and_all_gate_tests(report):
+def test_renders_after_exposure_and_all_gate_tests(report: Report) -> None:
     scheduler, rendered = make(report)
 
     scheduler.node_finished(EXPOSURE, "no-op")
@@ -47,7 +53,7 @@ def test_renders_after_exposure_and_all_gate_tests(report):
     assert outcome(scheduler).paths == [Path("top_customers.html")]
 
 
-def test_tests_may_finish_before_the_exposure(report):
+def test_tests_may_finish_before_the_exposure(report: Report) -> None:
     scheduler, rendered = make(report)
     scheduler.node_finished(TEST_A, "pass")
     scheduler.node_finished(TEST_B, "pass")
@@ -58,7 +64,7 @@ def test_tests_may_finish_before_the_exposure(report):
 
 
 @pytest.mark.parametrize("status", ["fail", "error", "skipped"])
-def test_failing_gate_test_skips_report(report, status):
+def test_failing_gate_test_skips_report(report: Report, status: str) -> None:
     scheduler, rendered = make(report)
     scheduler.node_finished(EXPOSURE, "no-op")
     scheduler.node_finished(TEST_A, status)
@@ -70,7 +76,7 @@ def test_failing_gate_test_skips_report(report, status):
     assert f"upstream test {status}: {TEST_A}" in outcome(scheduler).detail
 
 
-def test_skipped_exposure_skips_report(report):
+def test_skipped_exposure_skips_report(report: Report) -> None:
     scheduler, rendered = make(report)
     scheduler.node_finished(EXPOSURE, "skipped")
     scheduler.finish()
@@ -78,7 +84,7 @@ def test_skipped_exposure_skips_report(report):
     assert outcome(scheduler).detail == "exposure skipped (upstream failure)"
 
 
-def test_unreached_exposure_is_skipped_at_finish(report):
+def test_unreached_exposure_is_skipped_at_finish(report: Report) -> None:
     scheduler, rendered = make(report)
     scheduler.node_finished(TEST_A, "pass")
     scheduler.finish()
@@ -87,8 +93,8 @@ def test_unreached_exposure_is_skipped_at_finish(report):
     assert outcome(scheduler).detail == "exposure was not reached in this run"
 
 
-def test_render_errors_are_captured(report):
-    def boom(_):
+def test_render_errors_are_captured(report: Report) -> None:
+    def boom(_: Report) -> list[Path]:
         raise ValueError("no such column")
 
     scheduler, _ = make(report, gate_tests=(), render=boom)
@@ -98,13 +104,13 @@ def test_render_errors_are_captured(report):
     assert outcome(scheduler).detail == "ValueError: no such column"
 
 
-def test_renders_on_the_thread_that_delivered_the_event(report):
+def test_renders_on_the_thread_that_delivered_the_event(report: Report) -> None:
     """dbt closes the adapter's connections as soon as `execute_nodes()` returns, so the
     render has to happen on the node thread itself -- while that call is still blocked --
     rather than being left in flight for `finish` to collect."""
     seen = {}
 
-    def record(_):
+    def record(_: Report) -> list[Path]:
         seen["thread"] = threading.get_ident()
         return []
 
@@ -115,12 +121,12 @@ def test_renders_on_the_thread_that_delivered_the_event(report):
     assert outcome(scheduler).status == "rendered"  # already done, before finish()
 
 
-def test_a_rendering_report_does_not_block_dbts_other_threads(report):
+def test_a_rendering_report_does_not_block_dbts_other_threads(report: Report) -> None:
     """The render holds a dbt node thread but not the scheduler's lock, so the rest of
     the run keeps reporting its nodes meanwhile."""
     rendering, other_reported = threading.Event(), threading.Event()
 
-    def slow(_):
+    def slow(_: Report) -> list[Path]:
         rendering.set()
         assert other_reported.wait(5), "another dbt thread was blocked by the render"
         return []
@@ -137,10 +143,10 @@ def test_a_rendering_report_does_not_block_dbts_other_threads(report):
     assert outcome(scheduler).status == "rendered"
 
 
-def test_on_event_adapts_dbt_events(report):
+def test_on_event_adapts_dbt_events(report: Report) -> None:
     scheduler, rendered = make(report, gate_tests=())
 
-    def event(name, uid=None, status=None):
+    def event(name: str, uid: str | None = None, status: str | None = None) -> SimpleNamespace:
         node_info = SimpleNamespace(unique_id=uid, node_status=status)
         return SimpleNamespace(info=SimpleNamespace(name=name), data=SimpleNamespace(node_info=node_info))
 

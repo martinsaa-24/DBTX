@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.dialects.postgresql import JSONB
 
 from dbtx.store import enums
 from dbtx.store import models as m
-from dbtx.store.types import UTCDateTime, in_check
+from dbtx.store.types import JSONType, UTCDateTime, in_check
 
 from .conftest import load_spec, spec_tables
 
@@ -68,7 +68,7 @@ def parse_reference(reference: str) -> tuple[str, tuple[str, ...]]:
     return referred_table.strip(), tuple(column.strip() for column in columns.split(","))
 
 
-def mapped_class(table_name: str):
+def mapped_class(table_name: str) -> type[m.Base]:
     for mapper in m.Base.registry.mappers:
         if mapper.local_table.name == table_name:
             return mapper.class_
@@ -80,12 +80,12 @@ def mapped_class(table_name: str):
 # --------------------------------------------------------------------------------------
 
 
-def test_models_have_exactly_the_spec_tables():
+def test_models_have_exactly_the_spec_tables() -> None:
     assert sorted(m.Base.metadata.tables) == TABLE_NAMES
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_class_is_named_for_the_table_and_lives_in_the_group_module(table_name):
+def test_class_is_named_for_the_table_and_lives_in_the_group_module(table_name: str) -> None:
     group_name = SPEC_TABLES[table_name][0]
     expected_class_name = "".join(part.capitalize() for part in table_name.split("_"))
 
@@ -102,14 +102,14 @@ def test_class_is_named_for_the_table_and_lives_in_the_group_module(table_name):
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_columns_match_the_spec_in_order(table_name):
+def test_columns_match_the_spec_in_order(table_name: str) -> None:
     expected = [item["field_name"] for item in attributes(table_name)]
 
     assert [column.name for column in table(table_name).columns] == expected
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_nullability_matches_the_spec(table_name):
+def test_nullability_matches_the_spec(table_name: str) -> None:
     expected = {item["field_name"]: item.get("nullable", False) for item in attributes(table_name)}
 
     actual = {column.name: column.nullable for column in table(table_name).columns}
@@ -129,9 +129,12 @@ def assert_column_type(column: sa.Column, field_type: str) -> None:
     elif field_type == "timestamp":
         assert isinstance(column_type, UTCDateTime), column.name
     elif field_type == "json":
-        assert type(column_type) is sa.JSON, column.name
-        assert column_type.none_as_null is True, column.name
-        postgres_type = column_type.dialect_impl(postgresql.dialect())
+        # The storage type is the adapter's json_type(), chosen per dialect.
+        assert isinstance(column_type, JSONType), column.name
+        sqlite_type = column_type.load_dialect_impl(sqlite.dialect())
+        assert isinstance(sqlite_type, sa.JSON), column.name
+        assert sqlite_type.none_as_null is True, column.name
+        postgres_type = column_type.load_dialect_impl(postgresql.dialect())
         assert isinstance(postgres_type, JSONB), column.name
         assert postgres_type.none_as_null is True, column.name
     else:
@@ -139,7 +142,7 @@ def assert_column_type(column: sa.Column, field_type: str) -> None:
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_column_types_match_the_spec(table_name):
+def test_column_types_match_the_spec(table_name: str) -> None:
     model_table = table(table_name)
     for item in attributes(table_name):
         assert item["field_name"] in model_table.columns, item["field_name"]
@@ -152,14 +155,14 @@ def test_column_types_match_the_spec(table_name):
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_primary_key_matches_the_spec_in_order(table_name):
+def test_primary_key_matches_the_spec_in_order(table_name: str) -> None:
     expected = SPEC_TABLES[table_name][1]["primary_key"]
 
     assert [column.name for column in table(table_name).primary_key.columns] == expected
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_foreign_keys_match_the_spec(table_name):
+def test_foreign_keys_match_the_spec(table_name: str) -> None:
     expected = set()
     for foreign_key in SPEC_TABLES[table_name][1].get("foreign_keys", []):
         referred_table, referred_columns = parse_reference(foreign_key["references"])
@@ -175,7 +178,7 @@ def test_foreign_keys_match_the_spec(table_name):
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_foreign_keys_never_cascade(table_name):
+def test_foreign_keys_never_cascade(table_name: str) -> None:
     # History is append-only; removal is soft (`removed_at`).
     for constraint in table(table_name).foreign_key_constraints:
         assert constraint.ondelete is None
@@ -183,7 +186,7 @@ def test_foreign_keys_never_cascade(table_name):
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_indexes_match_the_spec(table_name):
+def test_indexes_match_the_spec(table_name: str) -> None:
     expected = set()
     for index in SPEC_TABLES[table_name][1].get("indexes", []):
         expected.add(tuple(index["columns"]))
@@ -202,7 +205,7 @@ def test_indexes_match_the_spec(table_name):
 
 
 @pytest.mark.parametrize("table_name", TABLE_NAMES)
-def test_check_constraints_are_exactly_the_db_enforced_columns(table_name):
+def test_check_constraints_are_exactly_the_db_enforced_columns(table_name: str) -> None:
     expected = {}
     for item in attributes(table_name):
         if item.get("enforced_by") == "db":
@@ -224,7 +227,7 @@ def test_check_constraints_are_exactly_the_db_enforced_columns(table_name):
 # --------------------------------------------------------------------------------------
 
 
-def test_every_enforced_column_in_the_spec_has_a_python_value_set():
+def test_every_enforced_column_in_the_spec_has_a_python_value_set() -> None:
     spec_db = set()
     spec_app = set()
     for table_name in TABLE_NAMES:
@@ -239,7 +242,7 @@ def test_every_enforced_column_in_the_spec_has_a_python_value_set():
 
 
 @pytest.mark.parametrize("key", sorted(DB_ENFORCED), ids=lambda key: ".".join(key))
-def test_db_enforced_enum_matches_the_spec_in_order(key):
+def test_db_enforced_enum_matches_the_spec_in_order(key: tuple[str, str]) -> None:
     table_name, field_name = key
     enum_class = DB_ENFORCED[key]
 
@@ -248,7 +251,7 @@ def test_db_enforced_enum_matches_the_spec_in_order(key):
 
 
 @pytest.mark.parametrize("key", sorted(DB_ENFORCED), ids=lambda key: ".".join(key))
-def test_db_enforced_enum_members_are_strings(key):
+def test_db_enforced_enum_members_are_strings(key: tuple[str, str]) -> None:
     assert len(DB_ENFORCED[key]) > 0
     for member in DB_ENFORCED[key]:
         assert isinstance(member, str)
@@ -256,7 +259,7 @@ def test_db_enforced_enum_members_are_strings(key):
 
 
 @pytest.mark.parametrize("key", sorted(APP_ENFORCED), ids=lambda key: ".".join(key))
-def test_app_enforced_value_set_matches_the_spec(key):
+def test_app_enforced_value_set_matches_the_spec(key: tuple[str, str]) -> None:
     table_name, field_name = key
 
     assert isinstance(APP_ENFORCED[key], frozenset)
@@ -268,7 +271,7 @@ def test_app_enforced_value_set_matches_the_spec(key):
 # --------------------------------------------------------------------------------------
 
 
-def all_named_items():
+def all_named_items() -> list[tuple[str, str, str | None]]:
     """(kind, table name, item name) for every constraint and index in the metadata."""
     items = []
     for model_table in m.Base.metadata.sorted_tables:
@@ -279,7 +282,7 @@ def all_named_items():
     return items
 
 
-def test_every_constraint_and_index_has_a_conventional_name():
+def test_every_constraint_and_index_has_a_conventional_name() -> None:
     prefixes = {
         "PrimaryKeyConstraint": "pk_",
         "ForeignKeyConstraint": "fk_",
@@ -295,7 +298,7 @@ def test_every_constraint_and_index_has_a_conventional_name():
         assert len(str(name)) <= POSTGRES_MAX_IDENTIFIER_LENGTH, name
 
 
-def test_primary_key_and_index_names_are_unique():
+def test_primary_key_and_index_names_are_unique() -> None:
     # Postgres keeps index names (primary keys included) in one namespace per schema.
     names = [str(name) for kind, _, name in all_named_items() if kind in ("PrimaryKeyConstraint", "Index")]
 

@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import InstrumentedAttribute, Session, selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
 from dbtx.store import models as m
 
@@ -45,7 +46,7 @@ RELATIONSHIPS = [
 ]
 
 
-def relationship(class_name: str, name: str):
+def relationship(class_name: str, name: str) -> InstrumentedAttribute:
     """The mapped relationship attribute, or a failed assertion when it does not exist."""
     mapper = sa.inspect(getattr(m, class_name))
     assert name in mapper.relationships, f"{class_name}.{name} is not a relationship"
@@ -53,7 +54,7 @@ def relationship(class_name: str, name: str):
 
 
 @pytest.fixture
-def tables(engine):
+def tables(engine: sa.Engine) -> sa.Engine:
     """The engine, with every store table created and empty."""
     m.Base.metadata.create_all(engine)
     return engine
@@ -64,7 +65,7 @@ def tables(engine):
 # --------------------------------------------------------------------------------------
 
 
-def test_create_all_creates_every_spec_table(tables):
+def test_create_all_creates_every_spec_table(tables: sa.Engine) -> None:
     inspector = sa.inspect(tables)
 
     assert sorted(inspector.get_table_names(schema=reflection_schema(tables))) == sorted(
@@ -72,7 +73,7 @@ def test_create_all_creates_every_spec_table(tables):
     )
 
 
-def test_created_tables_match_the_spec(tables):
+def test_created_tables_match_the_spec(tables: sa.Engine) -> None:
     inspector = sa.inspect(tables)
     schema = reflection_schema(tables)
 
@@ -138,7 +139,12 @@ def test_created_tables_match_the_spec(tables):
     RELATIONSHIPS,
     ids=[f"{class_name}.{name}" for class_name, name, _, _ in RELATIONSHIPS],
 )
-def test_relationship_is_read_only_and_raises_when_not_loaded(class_name, name, target, is_collection):
+def test_relationship_is_read_only_and_raises_when_not_loaded(
+    class_name: str,
+    name: str,
+    target: str,
+    is_collection: bool,
+) -> None:
     relationship(class_name, name)
     configured = sa.inspect(getattr(m, class_name)).relationships[name]
 
@@ -148,7 +154,7 @@ def test_relationship_is_read_only_and_raises_when_not_loaded(class_name, name, 
     assert configured.uselist is is_collection
 
 
-def test_models_have_no_other_relationships():
+def test_models_have_no_other_relationships() -> None:
     expected = sorted(f"{class_name}.{name}" for class_name, name, _, _ in RELATIONSHIPS)
 
     actual = []
@@ -164,7 +170,7 @@ def test_models_have_no_other_relationships():
 # --------------------------------------------------------------------------------------
 
 
-def node(project, unique_id, resource_type, checksum):
+def node(project: str, unique_id: str, resource_type: str, checksum: str) -> m.Node:
     return m.Node(
         project=project,
         unique_id=unique_id,
@@ -177,13 +183,13 @@ def node(project, unique_id, resource_type, checksum):
     )
 
 
-def edge(project, parent_id, child_id):
+def edge(project: str, parent_id: str, child_id: str) -> m.NodeEdge:
     return m.NodeEdge(
         project=project, parent_id=parent_id, child_id=child_id, first_seen_at=T0, last_seen_at=T0
     )
 
 
-def node_result(invocation_id, unique_id):
+def node_result(invocation_id: str, unique_id: str) -> m.NodeResult:
     return m.NodeResult(
         invocation_id=invocation_id,
         project=PROJECT,
@@ -193,7 +199,7 @@ def node_result(invocation_id, unique_id):
     )
 
 
-def invocation(invocation_id, job_id, command):
+def invocation(invocation_id: str, job_id: str | None, command: str) -> m.Invocation:
     return m.Invocation(
         invocation_id=invocation_id,
         job_id=job_id,
@@ -208,7 +214,7 @@ def invocation(invocation_id, job_id, command):
 
 
 @pytest.fixture
-def history(tables):
+def history(tables: sa.Engine) -> sa.Engine:
     """Two projects that share `unique_id`s, with their edges reversed in the other one.
 
     jaffle_shop:  customers -> orders -> {not_null test, orders_report exposure}
@@ -278,12 +284,12 @@ def history(tables):
     return tables
 
 
-def load_node(session, project, unique_id, *options):
+def load_node(session: Session, project: str, unique_id: str, *options: ExecutableOption) -> m.Node:
     statement = sa.select(m.Node).where(m.Node.project == project, m.Node.unique_id == unique_id)
     return session.execute(statement.options(*options)).scalar_one()
 
 
-def test_job_invocations(history):
+def test_job_invocations(history: sa.Engine) -> None:
     with Session(history) as session:
         job = session.execute(
             sa.select(m.Job).options(selectinload(relationship("Job", "invocations")))
@@ -292,7 +298,7 @@ def test_job_invocations(history):
         assert [item.invocation_id for item in job.invocations] == ["inv-1"]
 
 
-def test_invocation_job(history):
+def test_invocation_job(history: sa.Engine) -> None:
     with Session(history) as session:
         invocations = session.execute(
             sa.select(m.Invocation)
@@ -304,7 +310,7 @@ def test_invocation_job(history):
         assert invocations[1].job is None
 
 
-def test_invocation_node_results_and_report_renders(history):
+def test_invocation_node_results_and_report_renders(history: sa.Engine) -> None:
     with Session(history) as session:
         first = session.execute(
             sa.select(m.Invocation)
@@ -319,7 +325,7 @@ def test_invocation_node_results_and_report_renders(history):
         assert [item.exposure_id for item in first.report_renders] == [ORDERS_REPORT]
 
 
-def test_node_versions_and_results_stay_within_the_project(history):
+def test_node_versions_and_results_stay_within_the_project(history: sa.Engine) -> None:
     with Session(history) as session:
         customers = load_node(
             session,
@@ -333,7 +339,7 @@ def test_node_versions_and_results_stay_within_the_project(history):
         assert sorted(item.invocation_id for item in customers.results) == ["inv-1", "inv-2"]
 
 
-def test_node_parents_and_children(history):
+def test_node_parents_and_children(history: sa.Engine) -> None:
     with Session(history) as session:
         orders = load_node(
             session,
@@ -350,7 +356,7 @@ def test_node_parents_and_children(history):
         ]
 
 
-def test_node_edges_of_another_project_are_never_followed(history):
+def test_node_edges_of_another_project_are_never_followed(history: sa.Engine) -> None:
     # other_shop has orders -> customers, the reverse of jaffle_shop.
     with Session(history) as session:
         customers = load_node(
@@ -376,7 +382,7 @@ def test_node_edges_of_another_project_are_never_followed(history):
         assert other_customers.children == []
 
 
-def test_report_node_and_renders(history):
+def test_report_node_and_renders(history: sa.Engine) -> None:
     with Session(history) as session:
         report = session.execute(
             sa.select(m.Report).options(
@@ -395,7 +401,11 @@ def test_report_node_and_renders(history):
     [(class_name, name) for class_name, name, _, _ in RELATIONSHIPS],
     ids=[f"{class_name}.{name}" for class_name, name, _, _ in RELATIONSHIPS],
 )
-def test_unloaded_relationship_raises_instead_of_querying(history, class_name, name):
+def test_unloaded_relationship_raises_instead_of_querying(
+    history: sa.Engine,
+    class_name: str,
+    name: str,
+) -> None:
     relationship(class_name, name)
     with Session(history) as session:
         instance = session.execute(sa.select(getattr(m, class_name)).limit(1)).scalar_one()

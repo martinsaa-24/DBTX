@@ -35,18 +35,18 @@ def write(folder: Path, name: str, content: str = "<p>{{ report.title }}</p>") -
         ("_template.html", None),
     ],
 )
-def test_template_name(filename, expected):
+def test_template_name(filename: str, expected: str | None) -> None:
     assert template_name(filename) == expected
 
 
-def test_integrated_templates_ship_with_dbtx():
+def test_integrated_templates_ship_with_dbtx() -> None:
     registry = TemplateRegistry.build([])
     table = registry.get("table")
     assert table.source is INTEGRATED
     assert table.path == (INTEGRATED_DIR / "table_template.html.j2").resolve()
 
 
-def test_rows_expose_name_source_and_uri(tmp_path):
+def test_rows_expose_name_source_and_uri(tmp_path: Path) -> None:
     finance = write(tmp_path / "t", "finance_template.html")
     registry = TemplateRegistry.build([tmp_path / "t"])
     assert registry.rows() == [
@@ -56,20 +56,20 @@ def test_rows_expose_name_source_and_uri(tmp_path):
     assert all(uri.startswith("file:///") for _, _, uri in registry.rows())
 
 
-def test_project_template_replaces_integrated_one(tmp_path):
+def test_project_template_replaces_integrated_one(tmp_path: Path) -> None:
     override = write(tmp_path / "t", "table_template.html.j2")
     entry = TemplateRegistry.build([tmp_path / "t"]).get("table")
     assert (entry.source, entry.path) == (PROJECT, override.resolve())
 
 
-def test_distinct_names_across_project_folders_combine(tmp_path):
+def test_distinct_names_across_project_folders_combine(tmp_path: Path) -> None:
     write(tmp_path / "a", "finance_template.html")
     write(tmp_path / "b", "sales_template.html.j2")
     registry = TemplateRegistry.build([tmp_path / "a", tmp_path / "b"])
     assert [e.name for e in registry] == ["finance", "sales", "table"]
 
 
-def test_same_name_in_two_project_folders_is_an_error(tmp_path):
+def test_same_name_in_two_project_folders_is_an_error(tmp_path: Path) -> None:
     first = write(tmp_path / "a", "finance_template.html")
     second = write(tmp_path / "b", "finance_template.html.j2")  # different suffix, same name
     with pytest.raises(TemplateError, match="'finance' is defined in two project template folders") as exc:
@@ -77,14 +77,14 @@ def test_same_name_in_two_project_folders_is_an_error(tmp_path):
     assert str(first.resolve()) in str(exc.value) and str(second.resolve()) in str(exc.value)
 
 
-def test_same_name_twice_in_one_folder_is_an_error(tmp_path):
+def test_same_name_twice_in_one_folder_is_an_error(tmp_path: Path) -> None:
     write(tmp_path / "t", "finance_template.html")
     write(tmp_path / "t", "finance_template.html.j2")
     with pytest.raises(TemplateError, match="'finance' is defined twice in"):
         TemplateRegistry.build([tmp_path / "t"])
 
 
-def test_missing_or_repeated_folders_are_errors(tmp_path):
+def test_missing_or_repeated_folders_are_errors(tmp_path: Path) -> None:
     with pytest.raises(TemplateError, match="template folder not found"):
         TemplateRegistry.build([tmp_path / "nope"])
     (tmp_path / "t").mkdir()
@@ -92,14 +92,14 @@ def test_missing_or_repeated_folders_are_errors(tmp_path):
         TemplateRegistry.build([tmp_path / "t", tmp_path / "t" / ".." / "t"])
 
 
-def test_only_matching_files_directly_in_the_folder_count(tmp_path):
+def test_only_matching_files_directly_in_the_folder_count(tmp_path: Path) -> None:
     write(tmp_path / "t", "notes.html")
     write(tmp_path / "t", "finance.html.j2")
     write(tmp_path / "t" / "nested", "deep_template.html")
     assert [e.name for e in TemplateRegistry.build([tmp_path / "t"])] == ["table"]
 
 
-def test_project_folders_come_from_dbt_project_vars(tmp_path):
+def test_project_folders_come_from_dbt_project_vars(tmp_path: Path) -> None:
     assert project_template_folders(EXAMPLE_PROJECT) == [EXAMPLE_PROJECT / "report_templates"]
 
     write(tmp_path, "dbt_project.yml", "name: p\n")
@@ -110,7 +110,7 @@ def test_project_folders_come_from_dbt_project_vars(tmp_path):
         project_template_folders(tmp_path)
 
 
-def test_example_project_registry():
+def test_example_project_registry() -> None:
     registry = TemplateRegistry.for_project(EXAMPLE_PROJECT)
     assert [(e.name, e.source) for e in registry] == [
         ("finance", PROJECT),
@@ -123,36 +123,36 @@ def test_example_project_registry():
 
 class TestEngine:
     @pytest.fixture
-    def engine(self, tmp_path):
+    def engine(self, tmp_path: Path) -> TemplateEngine:
         write(tmp_path / "t", "finance_template.html", "finance {{ report }}")
         return TemplateEngine(TemplateRegistry.build([tmp_path / "t"]))
 
-    def test_resolves_names_from_the_registry(self, engine):
+    def test_resolves_names_from_the_registry(self, engine: TemplateEngine) -> None:
         assert engine.resolve("finance", None).source is PROJECT
         assert engine.resolve("table", None).source is INTEGRATED
 
-    def test_exact_path_wins_over_name(self, engine, tmp_path):
+    def test_exact_path_wins_over_name(self, engine: TemplateEngine, tmp_path: Path) -> None:
         exact = write(tmp_path / "one_off", "anything.html", "exact {{ report }}")
         entry = engine.resolve("finance", exact)
         assert (entry.source, entry.path) == (EXPOSURE, exact.resolve())
         assert engine.load(entry).render(report="r") == "exact r"
 
-    def test_unknown_name_lists_what_is_available(self, engine):
+    def test_unknown_name_lists_what_is_available(self, engine: TemplateEngine) -> None:
         with pytest.raises(TemplateError, match=r"unknown template 'nope'; available: finance \(project\), table \(integrated\)"):
             engine.resolve("nope", None)
 
-    def test_missing_exact_path(self, engine, tmp_path):
+    def test_missing_exact_path(self, engine: TemplateEngine, tmp_path: Path) -> None:
         with pytest.raises(TemplateError, match="template_path not found"):
             engine.resolve(None, tmp_path / "missing.html")
 
-    def test_syntax_errors_name_the_file_and_line(self, tmp_path):
+    def test_syntax_errors_name_the_file_and_line(self, tmp_path: Path) -> None:
         broken = write(tmp_path / "t", "broken_template.html", "<p>\n{% if %}\n")
         engine = TemplateEngine(TemplateRegistry.build([tmp_path / "t"]))
         with pytest.raises(TemplateError) as exc:
             engine.load(engine.resolve("broken", None))
         assert f"{broken.resolve()}, line 2" in str(exc.value)
 
-    def test_project_templates_can_extend_integrated_ones(self, tmp_path):
+    def test_project_templates_can_extend_integrated_ones(self, tmp_path: Path) -> None:
         write(tmp_path / "t", "branded_template.html", '{% extends "table" %}{% block footer %}BRAND{% endblock %}')
         engine = TemplateEngine(TemplateRegistry.build([tmp_path / "t"]))
         report = type("R", (), {"title": "T", "description": "", "owner": ""})()
@@ -161,7 +161,7 @@ class TestEngine:
         )
         assert "<title>T</title>" in html and "BRAND" in html
 
-    def test_undefined_variables_fail_loudly(self, tmp_path):
+    def test_undefined_variables_fail_loudly(self, tmp_path: Path) -> None:
         write(tmp_path / "t", "typo_template.html", "{{ reprot.title }}")
         engine = TemplateEngine(TemplateRegistry.build([tmp_path / "t"]))
         with pytest.raises(Exception, match="'reprot' is undefined"):

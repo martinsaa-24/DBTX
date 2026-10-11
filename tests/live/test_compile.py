@@ -1,7 +1,13 @@
+import pytest
+
+from tests.live.conftest import Project
 from tests.live.test_build import ALL_REPORT_SQL
 
 
-def test_compile_writes_report_sql_to_compiled_only(project, capsys):
+def test_compile_writes_report_sql_to_compiled_only(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert project.dbtx("compile") == 0
 
     assert project.compiled_sql_files() == ALL_REPORT_SQL
@@ -15,7 +21,10 @@ def test_compile_writes_report_sql_to_compiled_only(project, capsys):
     assert "dbtx: 6 report definition(s) valid, 6 compiled" in capsys.readouterr().out
 
 
-def test_compile_follows_selection_but_validates_everything(project, capsys):
+def test_compile_follows_selection_but_validates_everything(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert project.dbtx("compile", "-s", "+exposure:store_scorecard") == 0
     assert project.compiled_sql_files() == {"store_scorecard.sql"}
 
@@ -25,7 +34,10 @@ def test_compile_follows_selection_but_validates_everything(project, capsys):
     assert "6 report definition(s) valid, 0 compiled" in capsys.readouterr().out
 
 
-def test_compile_fails_on_invalid_definitions_before_dbt_runs(project, capsys):
+def test_compile_fails_on_invalid_definitions_before_dbt_runs(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     exposures = project.root / "models/marts/_exposures.yml"
     exposures.write_text(
         exposures.read_text(encoding="utf-8").replace("template: table ", "template: tabel "),
@@ -37,7 +49,10 @@ def test_compile_fails_on_invalid_definitions_before_dbt_runs(project, capsys):
     assert project.compiled_sql_files() == set()
 
 
-def test_compile_catches_broken_templates(project, capsys):
+def test_compile_catches_broken_templates(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     project.write("report_templates/scorecard_template.html.j2", "{% block content %}{% if %}")
 
     assert project.dbtx("compile", "-s", "customers") == 2  # validation ignores selection
@@ -45,7 +60,7 @@ def test_compile_catches_broken_templates(project, capsys):
     assert "scorecard_template.html.j2, line 1" in out
 
 
-def test_compile_passthrough_modes(project, capsys):
+def test_compile_passthrough_modes(project: Project, capsys: pytest.CaptureFixture[str]) -> None:
     assert project.dbtx("compile", "--no-reports") == 0
     assert project.dbtx("compile", "--inline", "select 1 as x") == 0
     assert project.compiled_sql_files() == set()

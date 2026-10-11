@@ -8,8 +8,11 @@ See docs/agentic/orm_implementation_plan.md, section 6. In short:
   checks.
 * **Layers** (platform mode only), highest first: CLI flags, the config file, then
   `DBTX_*` environment variables. `.env` files are never read.
-* **Options:** `DB_BACKEND` (`enabled` | `disabled`, default `enabled`) and `DB_URI`
-  (required when the backend is enabled and the command uses the database).
+* **Options:** `DB_BACKEND` (`enabled` | `disabled`, default `enabled`), `DB_URI`
+  (required when the backend is enabled and the command uses the database),
+  `DB_SCHEMA` (default `dbtx`; only for backends with schemas, such as Postgres) and
+  `DB_ADAPTER` (the store adapter's name; default: the adapter for DB_URI's backend and
+  driver, see `dbtx.store.adapters`).
 
 `load_config(argv)` either returns a `DbtxConfig` or raises `ConfigError`. Callers turn
 a `ConfigError` into exit code 2 before dbt is ever started.
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -37,20 +41,36 @@ DBT_PROJECT_FILE_NAME = "dbt_project.yml"
 # dbtx's own command-line flags. They are removed from argv before dbt sees it.
 FLAG_DB_BACKEND = "--db-backend"
 FLAG_DB_URI = "--db-uri"
+FLAG_DB_SCHEMA = "--db-schema"
+FLAG_DB_ADAPTER = "--db-adapter"
 FLAG_CONFIG_FILE = "--config-file"
 FLAG_PLATFORM_DIR = "--platform-dir"
 FLAG_STANDALONE_MODE = "--standalone-mode"
 
-FLAGS_WITH_A_VALUE = (FLAG_DB_BACKEND, FLAG_DB_URI, FLAG_CONFIG_FILE, FLAG_PLATFORM_DIR)
+FLAGS_WITH_A_VALUE = (
+    FLAG_DB_BACKEND,
+    FLAG_DB_URI,
+    FLAG_DB_SCHEMA,
+    FLAG_DB_ADAPTER,
+    FLAG_CONFIG_FILE,
+    FLAG_PLATFORM_DIR,
+)
+
+# The --db-* flags: none of them has any meaning in standalone mode.
+DB_FLAGS = (FLAG_DB_BACKEND, FLAG_DB_URI, FLAG_DB_SCHEMA, FLAG_DB_ADAPTER)
 
 # Keys allowed in dbtx.conf.
 FILE_KEY_DB_BACKEND = "DB_BACKEND"
 FILE_KEY_DB_URI = "DB_URI"
-FILE_KEYS = (FILE_KEY_DB_BACKEND, FILE_KEY_DB_URI)
+FILE_KEY_DB_SCHEMA = "DB_SCHEMA"
+FILE_KEY_DB_ADAPTER = "DB_ADAPTER"
+FILE_KEYS = (FILE_KEY_DB_BACKEND, FILE_KEY_DB_URI, FILE_KEY_DB_SCHEMA, FILE_KEY_DB_ADAPTER)
 
 # Environment variables dbtx reads.
 ENV_DB_BACKEND = "DBTX_DB_BACKEND"
 ENV_DB_URI = "DBTX_DB_URI"
+ENV_DB_SCHEMA = "DBTX_DB_SCHEMA"
+ENV_DB_ADAPTER = "DBTX_DB_ADAPTER"
 ENV_CONFIG_FILE = "DBTX_CONFIG_FILE"
 
 # Every DBTX_* name dbtx knows about. Any other DBTX_* variable gets a warning, the env
@@ -59,6 +79,8 @@ ENV_CONFIG_FILE = "DBTX_CONFIG_FILE"
 KNOWN_ENV_VARS = (
     ENV_DB_BACKEND,
     ENV_DB_URI,
+    ENV_DB_SCHEMA,
+    ENV_DB_ADAPTER,
     ENV_CONFIG_FILE,
     "DBTX_DB_STRICT",
 )
@@ -69,7 +91,11 @@ DB_BACKEND_DISABLED = "disabled"
 MODE_PLATFORM = "platform"
 MODE_STANDALONE = "standalone"
 
-SUPPORTED_BACKENDS = ("sqlite", "postgresql")
+# DB_SCHEMA: the schema dbtx's tables live in, on backends that have schemas. Names are
+# limited to what Postgres accepts unquoted (and folds to nothing else), so the name in
+# the config is exactly the name in the database.
+DEFAULT_DB_SCHEMA = "dbtx"
+DB_SCHEMA_PATTERN = re.compile(r"[a-z_][a-z0-9_]{0,62}")
 
 # Commands that use the database: the commands the store records (plan 5.2) and the
 # `dbtx db` commands that change it. In platform mode with the backend enabled they
@@ -89,6 +115,7 @@ COMMANDS_THAT_USE_THE_DATABASE = (
     "db init",
     "db upgrade",
     "db load",
+    "db projects",
 )
 
 # Commands that report on the database. They never fail because DB_URI is missing.
@@ -106,6 +133,7 @@ DBTX_COMMANDS = (
     "db upgrade",
     "db status",
     "db load",
+    "db projects",
 )
 
 # Commands that do not belong to a single project. In platform mode they run without a
@@ -120,6 +148,7 @@ COMMANDS_WITHOUT_A_PROJECT = (
     "db init",
     "db upgrade",
     "db status",
+    "db projects",
 )
 
 # Two-word commands start with one of these groups.
@@ -151,11 +180,21 @@ class DbtxConfig:
     project_dir: Optional[Path]
     config_file: Optional[Path]
     config_file_reason: str
-    # None in standalone mode, where database options do not exist.
+    # None in standalone mode, where database options do not exist. `db_schema` always
+    # has a value in platform mode (the default is "dbtx"); it is used only by backends
+    # with schemas. `db_adapter`'s value is None when DB_ADAPTER is not set: the
+    # default adapter for DB_URI.
     db_backend: Optional[Setting]
     db_uri: Optional[Setting]
+    db_schema: Optional[Setting]
+    db_adapter: Optional[Setting]
     command: str
     uses_database: bool
+    # Guard G1 (platform mode, backend enabled, a database command with a project):
+    # the project's dbt name, and every folder on the platform declaring it when there
+    # is more than one. The start-up checks decide a collision together with guard G2.
+    project_name: Optional[str]
+    colliding_folders: tuple[str, ...]
     # The argv to hand on: dbtx flags removed and, in platform mode, the absolute
     # --project-dir / --profiles-dir added.
     argv: tuple[str, ...]
@@ -170,6 +209,19 @@ class DbtxConfig:
     @property
     def backend_enabled(self) -> bool:
         return self.db_backend is not None and self.db_backend.value == DB_BACKEND_ENABLED
+
+    def resolved_adapter(self):
+        """(name, class) of the store adapter for DB_URI and DB_ADAPTER, or None when no
+        URI is set. load_config has already checked that it resolves."""
+        if self.db_uri is None or self.db_uri.value is None:
+            return None
+        from sqlalchemy.engine import make_url
+
+        from dbtx.store.adapters import resolve_adapter
+
+        assert self.db_adapter is not None
+        url = make_url(self.db_uri.value)
+        return resolve_adapter(url.get_backend_name(), url.get_driver_name(), self.db_adapter.value)
 
     def masked_db_uri(self) -> Optional[str]:
         if self.db_uri is None or self.db_uri.value is None:
@@ -230,12 +282,17 @@ def load_config(argv: list[str]) -> DbtxConfig:
     # Steps 3-4: read the env and resolve each option by precedence.
     db_backend = resolve_db_backend(flag_values, file_entries, config_file, cwd)
     db_uri = resolve_db_uri(flag_values, file_entries, config_file, cwd)
+    db_schema = resolve_db_schema(flag_values, file_entries, config_file, cwd)
+    db_adapter = resolve_db_adapter(flag_values, file_entries, config_file, cwd)
 
     # Step 5: validate the values.
     db_backend = validate_db_backend(db_backend)
     backend_enabled = db_backend.value == DB_BACKEND_ENABLED
+    validate_db_adapter_name(db_adapter)
+    adapter_class = None
     if db_uri.value is not None:
-        validate_db_uri(db_uri, check_driver=backend_enabled)
+        adapter_class = validate_db_uri(db_uri, db_adapter, check_driver=backend_enabled)
+    validate_db_schema(db_schema, adapter_class)
 
     # Step 6: the requirement check, behind its gates.
     uses_database = command in COMMANDS_THAT_USE_THE_DATABASE
@@ -253,9 +310,14 @@ def load_config(argv: list[str]) -> DbtxConfig:
     if db_uri.value is not None:
         db_uri = normalise_sqlite_path(db_uri)
 
-    # Step 8 (Phase 0 part): guard G1.
+    # Step 8 (Phase 0 part): guard G1. A collision involving this project is decided by
+    # the start-up checks, together with guard G2 (dbtx.store.startup).
+    project_name = None
+    colliding_folders: tuple[str, ...] = ()
     if backend_enabled and uses_database and project_dir is not None:
-        check_project_name_collisions(platform_root, project_dir, warnings)
+        project_name, colliding_folders = check_project_name_collisions(
+            platform_root, project_dir, warnings
+        )
 
     return DbtxConfig(
         mode=MODE_PLATFORM,
@@ -266,8 +328,12 @@ def load_config(argv: list[str]) -> DbtxConfig:
         config_file_reason=config_file_reason,
         db_backend=db_backend,
         db_uri=db_uri,
+        db_schema=db_schema,
+        db_adapter=db_adapter,
         command=command,
         uses_database=uses_database,
+        project_name=project_name,
+        colliding_folders=colliding_folders,
         argv=tuple(rest),
         warnings=tuple(warnings),
         ignored_env_vars=(),
@@ -366,7 +432,7 @@ def decide_mode(
             raise ConfigError(
                 f"{FLAG_STANDALONE_MODE} and {FLAG_PLATFORM_DIR} contradict each other"
             )
-        for flag in (FLAG_DB_BACKEND, FLAG_DB_URI):
+        for flag in DB_FLAGS:
             if flag in flag_values:
                 raise ConfigError(
                     f"{flag} has no effect with {FLAG_STANDALONE_MODE}: standalone mode "
@@ -420,7 +486,7 @@ def decide_mode(
     if ENFORCE_DB_REQUIREMENTS:
         raise ConfigError(message)
     warnings.append(message + ". Continuing in standalone mode (not enforced yet)")
-    for flag in (FLAG_DB_BACKEND, FLAG_DB_URI, FLAG_CONFIG_FILE):
+    for flag in (FLAG_DB_BACKEND, FLAG_DB_URI, FLAG_DB_SCHEMA, FLAG_DB_ADAPTER, FLAG_CONFIG_FILE):
         if flag in flag_values:
             warnings.append(f"{flag} is ignored in standalone mode")
     return MODE_STANDALONE, "no platform found (fallback, not enforced yet)", None
@@ -431,7 +497,7 @@ def standalone_config(
 ) -> DbtxConfig:
     """Standalone mode: no config file, no database options, no platform checks."""
     ignored = []
-    for name in (ENV_DB_BACKEND, ENV_DB_URI, ENV_CONFIG_FILE):
+    for name in (ENV_DB_BACKEND, ENV_DB_URI, ENV_DB_SCHEMA, ENV_DB_ADAPTER, ENV_CONFIG_FILE):
         if os.environ.get(name):
             ignored.append(name)
 
@@ -444,8 +510,12 @@ def standalone_config(
         config_file_reason="none (standalone mode reads no config file)",
         db_backend=None,
         db_uri=None,
+        db_schema=None,
+        db_adapter=None,
         command=command,
         uses_database=False,
+        project_name=None,
+        colliding_folders=(),
         argv=tuple(rest),
         warnings=tuple(warnings),
         ignored_env_vars=tuple(ignored),
@@ -779,6 +849,43 @@ def resolve_db_uri(
     return Setting(None, "unset", None)
 
 
+def resolve_db_schema(
+    flag_values: dict[str, str],
+    file_entries: dict[str, tuple[str, int]],
+    config_file: Path,
+    cwd: Path,
+) -> Setting:
+    """DB_SCHEMA: CLI, then the config file, then the env, then the default."""
+    if FLAG_DB_SCHEMA in flag_values:
+        return Setting(flag_values[FLAG_DB_SCHEMA], "cli", cwd)
+    if FILE_KEY_DB_SCHEMA in file_entries:
+        value, line = file_entries[FILE_KEY_DB_SCHEMA]
+        return Setting(value, f"file {config_file}:{line}", config_file.parent)
+    from_env = os.environ.get(ENV_DB_SCHEMA)
+    if from_env:
+        return Setting(from_env, f"env {ENV_DB_SCHEMA}", cwd)
+    return Setting(DEFAULT_DB_SCHEMA, "default", None)
+
+
+def resolve_db_adapter(
+    flag_values: dict[str, str],
+    file_entries: dict[str, tuple[str, int]],
+    config_file: Path,
+    cwd: Path,
+) -> Setting:
+    """DB_ADAPTER: CLI, then the config file, then the env. Unset (None) means the
+    default adapter for DB_URI."""
+    if FLAG_DB_ADAPTER in flag_values:
+        return Setting(flag_values[FLAG_DB_ADAPTER], "cli", cwd)
+    if FILE_KEY_DB_ADAPTER in file_entries:
+        value, line = file_entries[FILE_KEY_DB_ADAPTER]
+        return Setting(value, f"file {config_file}:{line}", config_file.parent)
+    from_env = os.environ.get(ENV_DB_ADAPTER)
+    if from_env:
+        return Setting(from_env, f"env {ENV_DB_ADAPTER}", cwd)
+    return Setting(None, "default", None)
+
+
 # --------------------------------------------------------------------------------------
 # Step 5: values
 # --------------------------------------------------------------------------------------
@@ -794,9 +901,39 @@ def validate_db_backend(setting: Setting) -> Setting:
     return Setting(value, setting.source, setting.origin_dir)
 
 
-def validate_db_uri(setting: Setting, check_driver: bool) -> None:
+def validate_db_adapter_name(setting: Setting) -> None:
+    """DB_ADAPTER, when set, must name an installed adapter, even without a DB_URI.
+    Whether it serves DB_URI is checked by validate_db_uri."""
+    if setting.value is None:
+        return
+
+    from dbtx.store.adapters import adapter_class_by_name
+    from dbtx.store.errors import StoreError
+
+    try:
+        adapter_class_by_name(setting.value)
+    except StoreError as exc:
+        raise ConfigError(f"DB_ADAPTER ({setting.source}): {exc}") from None
+
+
+def validate_db_uri(setting: Setting, db_adapter: Setting, check_driver: bool):
+    """Check DB_URI and DB_ADAPTER against the adapter registry. Returns the adapter
+    class.
+
+    An adapter must serve the URI's backend and driver: the one DB_ADAPTER names, or
+    else the default for the pair. When `check_driver`, the package the driver needs
+    must be installed. Validation never imports a driver.
+    """
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import ArgumentError
+
+    from dbtx.store.adapters import (
+        adapter_class_by_name,
+        check_adapter_serves,
+        default_adapter,
+        driver_package_for,
+    )
+    from dbtx.store.errors import StoreError
 
     try:
         url = make_url(setting.value)
@@ -806,33 +943,101 @@ def validate_db_uri(setting: Setting, check_driver: bool) -> None:
             f"(for example sqlite:///.dbtx/dbtx.db or "
             f"postgresql+psycopg://user@host:5432/dbtx)"
         ) from None
+    backend = url.get_backend_name()
+
+    driver = uri_driver(setting, url, db_adapter, check_driver)
+
+    if db_adapter.value is not None:
+        adapter_class = adapter_class_by_name(db_adapter.value)
+        try:
+            check_adapter_serves(db_adapter.value, adapter_class, backend, driver)
+        except StoreError as exc:
+            raise ConfigError(f"DB_ADAPTER ({db_adapter.source}): {exc}") from None
+    else:
+        try:
+            _, adapter_class = default_adapter(backend, driver)
+        except StoreError as exc:
+            raise ConfigError(f"DB_URI ({setting.source}): {exc}") from None
+
+    package = driver_package_for(adapter_class, driver)
+    if check_driver and package is not None:
+        # find_spec rather than import: validation never imports a driver.
+        if importlib.util.find_spec(package) is None:
+            raise ConfigError(
+                f"DB_URI ({setting.source}) is a {adapter_class.display_name} URL but "
+                f"{package} is not installed; {adapter_class.install_hint}"
+            )
+
+    return adapter_class
+
+
+def uri_driver(setting: Setting, url, db_adapter: Setting, check_driver: bool) -> str:
+    """The driver DB_URI names, or else the default driver of its SQLAlchemy dialect.
+
+    Without `+driver`, SQLAlchemy loads the backend's dialect to find its default
+    driver, and a plugin backend's dialect may not be installed. Only that case
+    (NoSuchModuleError, no `+`) becomes a ConfigError, with the hints of the one
+    adapter that can serve the backend, when there is exactly one.
+    """
+    from sqlalchemy.exc import NoSuchModuleError
+
+    from dbtx.store.adapters import adapters_for_backend, driver_package_for, supported_drivers
+    from dbtx.store.errors import StoreError
+
+    if "+" in url.drivername:
+        return url.get_driver_name()
+    try:
+        return url.get_driver_name()
+    except NoSuchModuleError:
+        pass
 
     backend = url.get_backend_name()
-    if backend not in SUPPORTED_BACKENDS:
+    try:
+        candidates = adapters_for_backend(backend, db_adapter.value)
+    except StoreError as exc:
+        raise ConfigError(f"DB_URI ({setting.source}): {exc}") from None
+    if len(candidates) != 1:
         raise ConfigError(
-            f"DB_URI ({setting.source}): unsupported backend {backend!r}; supported: "
-            f"{', '.join(SUPPORTED_BACKENDS)}"
+            f"DB_URI ({setting.source}): the URI names no driver and SQLAlchemy has no "
+            f"{backend!r} dialect installed to pick one; write {backend}+<driver>://"
         )
 
-    driver = url.get_driver_name()
-    if backend == "sqlite" and driver != "pysqlite":
-        raise ConfigError(
-            f"DB_URI ({setting.source}): unsupported SQLite driver {driver!r}; use "
-            f"sqlite:/// (the standard library driver)"
-        )
-    if backend == "postgresql" and driver != "psycopg":
-        raise ConfigError(
-            f"DB_URI ({setting.source}): unsupported Postgres driver {driver!r}; use "
-            f"postgresql+psycopg:// (psycopg 3)"
-        )
+    adapter_class = candidates[0][1]
+    if check_driver:
+        packages = []
+        for driver in supported_drivers(adapter_class):
+            package = driver_package_for(adapter_class, driver)
+            if package is not None and package not in packages:
+                packages.append(package)
+        for package in packages:
+            if importlib.util.find_spec(package) is None:
+                raise ConfigError(
+                    f"DB_URI ({setting.source}) is a {adapter_class.display_name} URL but "
+                    f"{package} is not installed; {adapter_class.install_hint}"
+                )
+    raise ConfigError(
+        f"DB_URI ({setting.source}): the {adapter_class.display_name} URI names no "
+        f"driver and SQLAlchemy has no {backend!r} dialect installed to pick one; use "
+        f"{adapter_class.driver_hint}"
+    )
 
-    if check_driver and backend == "postgresql":
-        # find_spec rather than import: validation never imports a driver.
-        if importlib.util.find_spec("psycopg") is None:
-            raise ConfigError(
-                f"DB_URI ({setting.source}) is a Postgres URL but psycopg is not "
-                f"installed; install dbtx[postgres]"
-            )
+
+def validate_db_schema(setting: Setting, adapter_class) -> None:
+    """DB_SCHEMA must be a plain lowercase name. Setting it for a backend without
+    schemas (SQLite) is an error; the default is not "setting it"."""
+    if DB_SCHEMA_PATTERN.fullmatch(setting.value or "") is None:
+        raise ConfigError(
+            f"DB_SCHEMA ({setting.source}): {setting.value!r} is not a valid schema name; "
+            f"use lowercase letters, digits and _, not starting with a digit, at most 63 "
+            f"characters"
+        )
+    if setting.source == "default":
+        return
+    if adapter_class is not None and not adapter_class.supports_schemas:
+        raise ConfigError(
+            f"DB_SCHEMA ({setting.source}): {adapter_class.display_name} has no schemas; "
+            f"remove DB_SCHEMA, or use a DB_URI whose backend has schemas"
+        )
 
 
 def mask_uri(uri: str) -> str:
@@ -915,14 +1120,26 @@ def render_project_value(value: str) -> Optional[str]:
     return str(rendered)
 
 
+def project_name_collision_message(name: str, folders: tuple[str, ...], platform_root: Path) -> str:
+    """Guard G1's message: one dbt project name declared by several folders."""
+    return (
+        f"project name {name!r} is declared by {len(folders)} folders under "
+        f"{platform_root}: {', '.join(folders)}. Each project on a platform needs "
+        f"a unique name: in {DBT_PROJECT_FILE_NAME}"
+    )
+
+
 def check_project_name_collisions(
     platform_root: Path, project_dir: Path, warnings: list[str]
-) -> None:
+) -> tuple[Optional[str], tuple[str, ...]]:
     """Guard G1 (plan 6.5.4): one dbt project name per project folder on a platform.
 
-    A collision involving the current project is fatal (once enforced). A collision
-    between two other projects is only a warning, so a newly added folder cannot stop
-    unrelated projects.
+    Returns the current project's dbt name (None if unreadable) and, when other folders
+    declare it too, every folder declaring it (sorted). A collision between two other
+    projects is only a warning, so a newly added folder cannot stop unrelated projects.
+    A collision involving the current project is decided by the start-up checks once
+    enforced, because the folder that holds the name in the database (guard G2) may
+    still run; until then it is a warning.
     """
     folders_by_name: dict[str, list[str]] = {}
     for folder in project_folders(platform_root):
@@ -932,18 +1149,17 @@ def check_project_name_collisions(
         folders_by_name.setdefault(name, []).append(folder)
 
     current_name = read_project_name(project_dir)
+    colliding_folders: tuple[str, ...] = ()
 
     for name, folders in sorted(folders_by_name.items()):
         if len(folders) < 2:
             continue
-        message = (
-            f"project name {name!r} is declared by {len(folders)} folders under "
-            f"{platform_root}: {', '.join(folders)}. Each project on a platform needs "
-            f"a unique name: in {DBT_PROJECT_FILE_NAME}"
-        )
+        message = project_name_collision_message(name, tuple(folders), platform_root)
         if name == current_name:
-            if ENFORCE_DB_REQUIREMENTS:
-                raise ConfigError(message)
-            warnings.append(message + " (not enforced yet)")
+            colliding_folders = tuple(folders)
+            if not ENFORCE_DB_REQUIREMENTS:
+                warnings.append(message + " (not enforced yet)")
         else:
             warnings.append(message)
+
+    return current_name, colliding_folders

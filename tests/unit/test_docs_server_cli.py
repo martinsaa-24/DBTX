@@ -30,7 +30,7 @@ def docs_loc(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def served(monkeypatch) -> list[dict]:
+def served(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """Records calls to server.serve instead of starting anything."""
     calls: list[dict] = []
     monkeypatch.setattr(server, "serve", lambda docs_loc, **kw: calls.append(
@@ -38,15 +38,15 @@ def served(monkeypatch) -> list[dict]:
     return calls
 
 
-def test_serve_is_ours_not_passed_through_to_dbt():
+def test_serve_is_ours_not_passed_through_to_dbt() -> None:
     assert "serve" in cli.DOCS_SUBCOMMANDS
 
 
-def test_usage_mentions_serve():
+def test_usage_mentions_serve() -> None:
     assert "serve" in USAGE
 
 
-def test_usage_lists_every_subcommand_and_the_passthrough():
+def test_usage_lists_every_subcommand_and_the_passthrough() -> None:
     """`dbtx docs --help` is the only place the real subcommand set is written."""
     for sub in cli.DOCS_SUBCOMMANDS:
         assert f"dbtx docs {sub}" in USAGE
@@ -54,7 +54,7 @@ def test_usage_lists_every_subcommand_and_the_passthrough():
 
 
 @pytest.mark.parametrize("argv", [["docs"], ["docs", "-h"], ["docs", "--help"]])
-def test_docs_help_is_ours_not_dbt_s(argv: list[str], capsys):
+def test_docs_help_is_ours_not_dbt_s(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
     """dbt's `docs --help` lists only generate and serve, and documents a
     `serve` taking --project-dir, which is no longer the one that runs."""
     assert cli.main(argv) == 0
@@ -64,13 +64,13 @@ def test_docs_help_is_ours_not_dbt_s(argv: list[str], capsys):
         assert sub in out
 
 
-def test_serve_requires_docs_loc(served: list[dict], capsys):
+def test_serve_requires_docs_loc(served: list[dict], capsys: pytest.CaptureFixture[str]) -> None:
     assert docs_command(["serve"]) == 2
     assert "--docs-loc" in capsys.readouterr().out
     assert served == []
 
 
-def test_serve_defaults(served: list[dict], docs_loc: Path):
+def test_serve_defaults(served: list[dict], docs_loc: Path) -> None:
     assert docs_command(["serve", "--docs-loc", str(docs_loc)]) == 0
     assert served == [{
         "docs_loc": docs_loc,
@@ -80,7 +80,7 @@ def test_serve_defaults(served: list[dict], docs_loc: Path):
     }]
 
 
-def test_serve_parses_host_port_and_browser(served: list[dict], docs_loc: Path):
+def test_serve_parses_host_port_and_browser(served: list[dict], docs_loc: Path) -> None:
     code = docs_command([
         "serve", "--docs-loc", str(docs_loc),
         "--host", "0.0.0.0", "--port", "9001", "--browser",
@@ -91,15 +91,23 @@ def test_serve_parses_host_port_and_browser(served: list[dict], docs_loc: Path):
     assert served[0]["open_browser"] is True
 
 
-def test_non_numeric_port_is_rejected(served: list[dict], docs_loc: Path, capsys):
+def test_non_numeric_port_is_rejected(
+    served: list[dict],
+    docs_loc: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert docs_command(["serve", "--docs-loc", str(docs_loc), "--port", "http"]) == 2
     assert "port" in capsys.readouterr().out
     assert served == []
 
 
 @pytest.mark.parametrize("port", ["-1", "65536", "99999"])
-def test_out_of_range_port_is_rejected(served: list[dict], docs_loc: Path, capsys,
-                                       port: str):
+def test_out_of_range_port_is_rejected(
+    served: list[dict],
+    docs_loc: Path,
+    capsys: pytest.CaptureFixture[str],
+    port: str,
+) -> None:
     """Left to uvicorn, an unbindable port is an OverflowError traceback."""
     assert docs_command(["serve", "--docs-loc", str(docs_loc), "--port", port]) == 2
     out = capsys.readouterr().out
@@ -108,7 +116,10 @@ def test_out_of_range_port_is_rejected(served: list[dict], docs_loc: Path, capsy
     assert served == []
 
 
-def test_unservable_docs_loc_exits_cleanly(tmp_path: Path, capsys):
+def test_unservable_docs_loc_exits_cleanly(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """A ServerError must become an exit code, not a traceback."""
     assert docs_command(["serve", "--docs-loc", str(tmp_path / "nope")]) == 2
     assert "dbtx docs:" in capsys.readouterr().out

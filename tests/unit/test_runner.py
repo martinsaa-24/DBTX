@@ -1,10 +1,14 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import dbt.adapters.factory
+import pytest
 from dbt.cli.main import cli as dbt_cli
+from dbt.contracts.graph.manifest import Manifest
 
+from dbtx.reports import Report
 from dbtx.runner import (
     OutputPaths,
     argv_for,
@@ -13,10 +17,11 @@ from dbtx.runner import (
     query_and_render,
     usage_error,
 )
+from dbtx.templates import TemplateEngine
 from tests.conftest import EXAMPLE_PROJECT
 
 
-def test_explicit_params_keeps_only_user_set_options():
+def test_explicit_params_keeps_only_user_set_options() -> None:
     params = explicit_params(
         "build", ["-s", "+exposure:top_customers", "--full-refresh", "--vars", "{a: 1}", "--threads", "8"]
     )
@@ -28,13 +33,13 @@ def test_explicit_params_keeps_only_user_set_options():
     }
 
 
-def test_explicit_params_ignores_environment_variables(monkeypatch):
+def test_explicit_params_ignores_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
     monkeypatch.setenv("DBT_TARGET", "prod")
     assert explicit_params("build", ["-s", "customers"]) == {"select": ("customers",)}
 
 
-def test_argv_for_drops_options_the_command_does_not_accept():
+def test_argv_for_drops_options_the_command_does_not_accept() -> None:
     params = {"select": ("x",), "full_refresh": True, "vars": {"a": 1}, "target": "dev"}
     assert argv_for("list", params) == [
         "--select", "x", "--vars", "{a: 1}", "--target", "dev",
@@ -43,19 +48,19 @@ def test_argv_for_drops_options_the_command_does_not_accept():
     assert argv_for("parse", params) == ["--vars", "{a: 1}", "--target", "dev"]
 
 
-def test_argv_for_repeats_multi_options_and_negates_flags():
+def test_argv_for_repeats_multi_options_and_negates_flags() -> None:
     params = {"select": ("a", "b"), "exclude": ("c",), "use_colors": False, "threads": 8}
     assert argv_for("build", params) == [
         "--select", "a", "--select", "b", "--exclude", "c", "--no-use-colors", "--threads", "8",
     ]
 
 
-def test_argv_for_omits_a_flag_that_has_no_negation():
+def test_argv_for_omits_a_flag_that_has_no_negation() -> None:
     assert argv_for("build", {"full_refresh": True}) == ["--full-refresh"]
     assert argv_for("build", {"full_refresh": False}) == []
 
 
-def test_argv_for_round_trips_through_dbts_own_parser():
+def test_argv_for_round_trips_through_dbts_own_parser() -> None:
     """The tokens must parse back to the params they came from -- `--vars` especially,
     which has to stay a single argv token (flow style), not block YAML."""
     args = [
@@ -72,7 +77,7 @@ def test_argv_for_round_trips_through_dbts_own_parser():
     assert {k: ctx.params[k] for k in params} == params
 
 
-def test_usage_error_names_the_option_the_user_got_wrong():
+def test_usage_error_names_the_option_the_user_got_wrong() -> None:
     """A resilient parse drops a rejected option, so the failure would otherwise be
     reported against that option's default instead of the value given."""
     problem = usage_error("build", ["--select", "x", "--profiles-dir", "does/not/exist"])
@@ -80,12 +85,15 @@ def test_usage_error_names_the_option_the_user_got_wrong():
     assert "--profiles-dir" in problem and "does/not/exist" in problem
 
 
-def test_usage_error_is_none_for_a_usable_invocation():
+def test_usage_error_is_none_for_a_usable_invocation() -> None:
     args = ["--select", "x", "--project-dir", str(EXAMPLE_PROJECT), "--profiles-dir", str(EXAMPLE_PROJECT)]
     assert usage_error("build", args) is None
 
 
-def test_gate_tests_are_tests_on_direct_parents_within_the_run(manifest, reports):
+def test_gate_tests_are_tests_on_direct_parents_within_the_run(
+    manifest: Manifest,
+    reports: dict[str, Report],
+) -> None:
     report = reports["top_customers"]
     everything = set(manifest.nodes)
 
@@ -102,14 +110,14 @@ def test_gate_tests_are_tests_on_direct_parents_within_the_run(manifest, reports
     assert gate_tests(manifest, report, everything - gates) == set()
 
 
-def test_gate_tests_cover_every_parent(manifest, reports):
+def test_gate_tests_cover_every_parent(manifest: Manifest, reports: dict[str, Report]) -> None:
     gates = gate_tests(manifest, reports["jaffle_mix"], set(manifest.nodes))
     names = {g.split(".")[2] for g in gates}
     assert {"unique_product_mix_product_name", "unique_orders_order_id"} <= names
     assert "assert_order_totals_reconcile" in names
 
 
-def test_output_paths_mirror_dbt_target_layout():
+def test_output_paths_mirror_dbt_target_layout() -> None:
     paths = OutputPaths.for_project({"project_dir": str(EXAMPLE_PROJECT)}, "jaffle_shop")
     target = EXAMPLE_PROJECT / "target"
     assert paths.reports == target / "reports"
@@ -123,26 +131,31 @@ def test_output_paths_mirror_dbt_target_layout():
 class FakeAdapter:
     """Records what exists on disk at each step of a report query."""
 
-    def __init__(self, paths, name):
+    def __init__(self, paths: OutputPaths, name: str) -> None:
         self.compiled = paths.compiled / f"{name}.sql"
         self.run = paths.run / f"{name}.sql"
         self.connection_open = False
         self.seen = []
 
     @contextmanager
-    def connection_named(self, _name):
+    def connection_named(self, _name: str) -> Iterator[None]:
         self.seen.append(("open", self.run.exists()))
         self.connection_open = True
         yield
         self.connection_open = False
 
-    def execute(self, sql, fetch):
+    def execute(self, sql: str, fetch: bool) -> tuple[None, SimpleNamespace]:
         assert self.connection_open
         self.seen.append(("execute", self.compiled.read_text(), self.run.read_text()))
         return None, SimpleNamespace(column_names=["customer_name"], rows=[("Ann",)])
 
 
-def test_build_writes_compiled_then_run_sql_right_before_executing(reports, templates, tmp_path, monkeypatch):
+def test_build_writes_compiled_then_run_sql_right_before_executing(
+    reports: dict[str, Report],
+    templates: TemplateEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     report = reports["top_customers"]
     paths = OutputPaths(reports=tmp_path / "r", compiled=tmp_path / "c", run=tmp_path / "x")
     adapter = FakeAdapter(paths, report.name)

@@ -1,7 +1,10 @@
 import csv
 import re
+from pathlib import Path
 
-from tests.live.conftest import NO_SEEDS
+import pytest
+
+from tests.live.conftest import NO_SEEDS, Project
 
 ALL_REPORT_FILES = {
     "store_revenue_monthly.html",
@@ -16,7 +19,7 @@ ALL_REPORT_FILES = {
 }
 
 
-def read_csv(path):
+def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
@@ -31,7 +34,7 @@ ALL_REPORT_SQL = {
 }
 
 
-def test_full_build_renders_every_report(built_project):
+def test_full_build_renders_every_report(built_project: Project) -> None:
     assert built_project.report_files() == ALL_REPORT_FILES
 
     monthly = read_csv(built_project.reports / "store_revenue_monthly.csv")
@@ -47,8 +50,8 @@ def test_full_build_renders_every_report(built_project):
     assert html.count("<tr>") == 26  # header + 25 rows
 
 
-def test_each_report_uses_its_template(built_project):
-    def html(name):
+def test_each_report_uses_its_template(built_project: Project) -> None:
+    def html(name: str) -> str:
         return (built_project.reports / f"{name}.html").read_text(encoding="utf-8")
 
     # project `finance` template (extends integrated `table`): banner and exact totals
@@ -63,8 +66,8 @@ def test_each_report_uses_its_template(built_project):
     assert "1. nutellaphone who dis?" in html("jaffle_mix")
 
 
-def test_extended_templates_render_real_data(built_project):
-    def html(name):
+def test_extended_templates_render_real_data(built_project: Project) -> None:
+    def html(name: str) -> str:
         return (built_project.reports / f"{name}.html").read_text(encoding="utf-8")
 
     brand = "Jaffle Shop · Analytics"
@@ -91,7 +94,7 @@ def test_extended_templates_render_real_data(built_project):
     }
 
 
-def test_build_writes_compiled_and_run_sql_like_dbt(built_project):
+def test_build_writes_compiled_and_run_sql_like_dbt(built_project: Project) -> None:
     assert built_project.compiled_sql_files() == ALL_REPORT_SQL
     assert built_project.run_sql_files() == ALL_REPORT_SQL
     for name in ALL_REPORT_SQL:
@@ -106,30 +109,39 @@ def test_build_writes_compiled_and_run_sql_like_dbt(built_project):
     assert not any(name.endswith(".sql") for name in built_project.report_files())
 
 
-def test_selecting_an_exposure_builds_its_upstream_and_renders_only_it(project, capsys):
+def test_selecting_an_exposure_builds_its_upstream_and_renders_only_it(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert project.dbtx("build", "-s", "+exposure:top_customers", *NO_SEEDS) == 0
     assert project.report_files() == {"top_customers.html"}
     assert project.run_sql_files() == {"top_customers.sql"}
     assert "dbtx: 1 report(s)" in capsys.readouterr().out
 
 
-def test_exposure_alone_renders_against_existing_tables(project):
+def test_exposure_alone_renders_against_existing_tables(project: Project) -> None:
     assert project.dbtx("build", "-s", "exposure:jaffle_mix") == 0
     assert project.report_files() == {"jaffle_mix.csv", "jaffle_mix.html"}
 
 
-def test_models_without_their_exposure_render_nothing(project, capsys):
+def test_models_without_their_exposure_render_nothing(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert project.dbtx("build", "-s", "customers") == 0
     assert project.report_files() == set()
     assert "dbtx:" not in capsys.readouterr().out
 
 
-def test_no_reports_flag(project):
+def test_no_reports_flag(project: Project) -> None:
     assert project.dbtx("build", "--no-reports", "-s", "+exposure:top_customers", *NO_SEEDS) == 0
     assert project.report_files() == set()
 
 
-def test_failing_upstream_test_blocks_only_its_reports(project, capsys):
+def test_failing_upstream_test_blocks_only_its_reports(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     project.write(
         "tests/assert_no_customers.sql",
         "select * from {{ ref('customers') }}",
@@ -151,7 +163,10 @@ def test_failing_upstream_test_blocks_only_its_reports(project, capsys):
     assert project.run_sql_files() == ALL_REPORT_SQL - skipped
 
 
-def test_failing_model_skips_downstream_reports(project, capsys):
+def test_failing_model_skips_downstream_reports(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     project.write("models/marts/product_mix.sql", "select * from missing_table")
 
     assert project.dbtx("build", *NO_SEEDS) == 1
@@ -166,7 +181,10 @@ def test_failing_model_skips_downstream_reports(project, capsys):
     assert "SKIPPED   beverage_leaderboard  exposure skipped (upstream failure)" in out
 
 
-def test_report_query_error_fails_the_run(project, capsys):
+def test_report_query_error_fails_the_run(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     exposures = project.root / "models/marts/_exposures.yml"
     exposures.write_text(
         exposures.read_text(encoding="utf-8").replace(
@@ -184,7 +202,10 @@ def test_report_query_error_fails_the_run(project, capsys):
     assert "where no_such_column = 1" in (project.run_sql / "jaffle_mix.sql").read_text(encoding="utf-8")
 
 
-def test_invalid_report_definition_is_a_usage_error(project, capsys):
+def test_invalid_report_definition_is_a_usage_error(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     exposures = project.root / "models/marts/_exposures.yml"
     exposures.write_text(
         exposures.read_text(encoding="utf-8").replace("limit: 25", "limit: -1"), encoding="utf-8"
@@ -194,7 +215,7 @@ def test_invalid_report_definition_is_a_usage_error(project, capsys):
     assert "top_customers" in capsys.readouterr().out
 
 
-def _add_template_folder(project, folder):
+def _add_template_folder(project: Project, folder: str) -> None:
     yml = project.root / "dbt_project.yml"
     yml.write_text(
         yml.read_text(encoding="utf-8").replace(
@@ -204,7 +225,10 @@ def _add_template_folder(project, folder):
     )
 
 
-def test_template_name_in_two_project_folders_stops_before_dbt(project, capsys):
+def test_template_name_in_two_project_folders_stops_before_dbt(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     project.write("more_templates/finance_template.html", "<p>other finance</p>")
     _add_template_folder(project, "more_templates")
 
@@ -215,7 +239,7 @@ def test_template_name_in_two_project_folders_stops_before_dbt(project, capsys):
     assert project.report_files() == set()
 
 
-def test_project_template_overrides_integrated_one(project):
+def test_project_template_overrides_integrated_one(project: Project) -> None:
     project.write("more_templates/table_template.html", "<p>custom table: {{ rows | length }}</p>")
     _add_template_folder(project, "more_templates")
 
@@ -225,7 +249,10 @@ def test_project_template_overrides_integrated_one(project):
     assert html == "<p>custom table: 25</p>"
 
 
-def test_unknown_template_is_a_usage_error(project, capsys):
+def test_unknown_template_is_a_usage_error(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     exposures = project.root / "models/marts/_exposures.yml"
     exposures.write_text(
         exposures.read_text(encoding="utf-8").replace("template: table ", "template: tabel "),
@@ -236,7 +263,10 @@ def test_unknown_template_is_a_usage_error(project, capsys):
     assert "top_customers: unknown template 'tabel'" in capsys.readouterr().out
 
 
-def test_templates_command_lists_resolved_templates(project, capsys):
+def test_templates_command_lists_resolved_templates(
+    project: Project,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert project.dbtx("templates") == 0
     header, *rows = [line.split() for line in capsys.readouterr().out.splitlines()]
     assert header == ["NAME", "SOURCE", "URI"]
@@ -250,6 +280,6 @@ def test_templates_command_lists_resolved_templates(project, capsys):
     assert rows[0][2].endswith("/report_templates/finance_template.html.j2")
 
 
-def test_other_commands_pass_through_to_dbt(project):
+def test_other_commands_pass_through_to_dbt(project: Project) -> None:
     assert project.dbtx("ls", "-s", "exposure:*", "--quiet") == 0
     assert project.dbtx("not-a-command") == 2

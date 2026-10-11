@@ -23,7 +23,7 @@ os.environ["DBT_SEND_ANONYMOUS_USAGE_STATS"] = "false"
 NO_SEEDS = ("--exclude-resource-type", "seed")
 
 
-def pytest_collection_modifyitems(items):
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if LIVE_DIR in item.path.parents:
             item.add_marker(pytest.mark.live)
@@ -96,13 +96,13 @@ def _build_example(root: Path) -> Project:
 
 
 @pytest.fixture(scope="session")
-def built_project(tmp_path_factory) -> Project:
+def built_project(tmp_path_factory: pytest.TempPathFactory) -> Project:
     """The example project after one full `dbtx build`. Treat as read-only; use `project` to modify."""
     return _build_example(tmp_path_factory.mktemp("built") / "jaffle_shop")
 
 
 @pytest.fixture
-def project(built_project, tmp_path) -> Project:
+def project(built_project: Project, tmp_path: Path) -> Project:
     """A private, already-built copy (warehouse included) that a test may modify."""
     copy = copy_project(built_project.root, tmp_path / "jaffle_shop")
     copy.clear_reports()

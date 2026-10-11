@@ -21,7 +21,7 @@ from tests.unit.conftest import config_sample
 EXAMPLE_TEMPLATE = Path(__file__).resolve().parents[2] / "examples" / "dbtx.conf.example"
 
 
-def test_valid_full_sample():
+def test_valid_full_sample() -> None:
     assert config.parse_config_file(config_sample("valid_full.conf")) == {
         "DB_BACKEND": ("disabled", 3),
         "DB_URI": ("sqlite:///x.db", 4),
@@ -37,13 +37,25 @@ def test_valid_full_sample():
         ("backend_disabled.conf", {"DB_BACKEND": ("disabled", 1)}),
         # The parser does not judge values; DB_BACKEND is validated later.
         ("bad_backend_value.conf", {"DB_BACKEND": ("sometimes", 1)}),
+        (
+            "platform_postgres_schema.conf",
+            {
+                "DB_URI": ("postgresql+psycopg://dbtx@db/dbtx", 1),
+                "DB_SCHEMA": ("analytics_dbtx", 2),
+            },
+        ),
+        # Nor whether DB_SCHEMA suits the URI.
+        ("sqlite_with_schema.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 2), "DB_SCHEMA": ("dbtx", 3)}),
+        ("bad_schema_value.conf", {"DB_URI": ("postgresql+psycopg://dbtx@db/dbtx", 1), "DB_SCHEMA": ("Analytics-DBTX", 2)}),
+        # Nor whether DB_ADAPTER names an installed adapter.
+        ("platform_sqlite_adapter.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 1), "DB_ADAPTER": ("custom_sqlite", 2)}),
     ],
 )
-def test_valid_samples(sample, value):
+def test_valid_samples(sample: str, value: dict[str, tuple[str, int]]) -> None:
     assert config.parse_config_file(config_sample(sample)) == value
 
 
-def test_shipped_example_template_is_valid():
+def test_shipped_example_template_is_valid() -> None:
     entries = config.parse_config_file(EXAMPLE_TEMPLATE)
     assert sorted(entries) == ["DB_BACKEND", "DB_URI"]
     assert entries["DB_BACKEND"][0] == "enabled"
@@ -54,7 +66,7 @@ def test_shipped_example_template_is_valid():
 @pytest.mark.parametrize(
     "sample, error",
     [
-        ("invalid_unknown_key.conf", r"invalid_unknown_key.conf:1: unknown key 'DB_URL'"),
+        ("invalid_unknown_key.conf", r"invalid_unknown_key.conf:1: unknown key 'DB_URL'; known keys: DB_BACKEND, DB_URI, DB_SCHEMA, DB_ADAPTER$"),
         ("invalid_duplicate_key.conf", r"invalid_duplicate_key.conf:2: DB_URI is already set on line 1"),
         ("invalid_export.conf", r"invalid_export.conf:1: `export` is not supported"),
         ("invalid_interpolation.conf", r"invalid_interpolation.conf:1: .* interpolation is not supported"),
@@ -63,6 +75,6 @@ def test_shipped_example_template_is_valid():
         ("invalid_empty_value.conf", r"invalid_empty_value.conf:1: DB_URI has an empty value"),
     ],
 )
-def test_invalid_samples(sample, error):
+def test_invalid_samples(sample: str, error: str) -> None:
     with pytest.raises(ConfigError, match=error):
         config.parse_config_file(config_sample(sample))

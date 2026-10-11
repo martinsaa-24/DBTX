@@ -2,8 +2,9 @@
 
 * `UTCDateTime`: the spec's `timestamp`. Stored as UTC, returned as an aware UTC
   datetime. A naive datetime is rejected, because its time zone is unknown.
-* `JSONType`: the spec's `json`. `JSONB` on Postgres, JSON text on SQLite. Python
-  `None` is stored as SQL `NULL`, not as the JSON literal `null`.
+* `JSONType`: the spec's `json`. The storage type is the adapter's `json_type()`:
+  `JSONB` on Postgres, JSON text on SQLite. Python `None` is stored as SQL `NULL`, not
+  as the JSON literal `null`.
 * `in_check()`: the CHECK expression for a column whose values the database enforces.
 """
 
@@ -12,7 +13,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import TypeDecorator
 
 
@@ -50,7 +50,26 @@ class UTCDateTime(TypeDecorator):
         return value.astimezone(timezone.utc)
 
 
-JSONType = sa.JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
+class JSONType(TypeDecorator):
+    """A JSON document, stored in the type the backend's adapter chooses (`json_type()`).
+
+    The models are defined before anyone knows which adapter will run, so the storage
+    type is picked per dialect when SQLAlchemy first compiles or executes for it. The
+    adapter is the one `open_store` attached to the engine's dialect (it may be
+    DB_ADAPTER's); for a bare dialect, the built-in for its name, or else the default
+    for its name and driver (`adapter_for_dialect`). A dialect no adapter serves is a
+    StoreError.
+    """
+
+    impl = sa.JSON(none_as_null=True)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        # Imported here: the adapters import the models, which import this module.
+        from dbtx.store.adapters import adapter_for_dialect
+
+        adapter = adapter_for_dialect(dialect)
+        return dialect.type_descriptor(adapter.json_type())
 
 
 def in_check(column_name: str, values: list[str], nullable: bool) -> str:

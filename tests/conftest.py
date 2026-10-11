@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from dbt.contracts.graph.manifest import Manifest, WritableManifest
 
-from dbtx.reports import discover_reports
+from dbtx.reports import Report, discover_reports
 from dbtx.templates import TemplateEngine, TemplateRegistry
 
 REPO = Path(__file__).resolve().parents[1]
@@ -14,7 +14,7 @@ EXAMPLE_PROJECT = REPO / "examples" / "jaffle_shop"
 FROZEN_MANIFEST = Path(__file__).parent / "fixtures" / "manifest.json"
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser: pytest.Parser) -> None:
     # Registered here, in the top-level conftest, so pytest accepts the option whichever
     # tests are selected. Used by tests/unit/store/conftest.py (`postgres_uri`).
     parser.addoption(
@@ -37,7 +37,7 @@ def check_postgres_uri_option(value: str | None) -> None:
         )
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     check_postgres_uri_option(config.getoption("postgres_uri"))
 
 
@@ -60,6 +60,6 @@ def templates() -> TemplateEngine:
 
 
 @pytest.fixture
-def reports(manifest, templates):
+def reports(manifest: Manifest, templates: TemplateEngine) -> dict[str, Report]:
     """Reports keyed by name."""
     return {r.name: r for r in discover_reports(manifest, templates, EXAMPLE_PROJECT).values()}

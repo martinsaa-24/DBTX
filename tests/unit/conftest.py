@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Callable
+from importlib.metadata import EntryPoint
 from pathlib import Path
 
 import pytest
 
 from dbtx import cli, config
+from dbtx.store import adapters
 
 CONFIG_SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "config"
 
@@ -24,7 +27,7 @@ CONFIG_SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "config"
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
+def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test depends on the developer's shell: clear what dbtx and dbt read."""
     for name in list(os.environ):
         if name.startswith("DBTX_"):
@@ -33,8 +36,28 @@ def clean_env(monkeypatch):
     monkeypatch.delenv("DBT_PROFILES_DIR", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def no_adapter_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test depends on store adapter plugins installed on the machine."""
+    monkeypatch.setattr(adapters, "_entry_points", lambda: [])
+
+
 @pytest.fixture
-def enforce(monkeypatch):
+def adapter_plugins(monkeypatch: pytest.MonkeyPatch) -> Callable[[dict[str, str]], None]:
+    """Install fake `dbtx.store_adapters` entry points: `adapter_plugins({name: value})`,
+    where value is `module:Class` (see tests/unit/fake_store_adapters.py)."""
+    installed: list[EntryPoint] = []
+
+    def install(entries: dict[str, str]) -> None:
+        for name, value in entries.items():
+            installed.append(EntryPoint(name=name, value=value, group=adapters.ENTRY_POINT_GROUP))
+
+    monkeypatch.setattr(adapters, "_entry_points", lambda: list(installed))
+    return install
+
+
+@pytest.fixture
+def enforce(monkeypatch: pytest.MonkeyPatch) -> None:
     """The behaviour after plan Phase 5: database-motivated problems exit 2."""
     monkeypatch.setattr(config, "ENFORCE_DB_REQUIREMENTS", True)
 
@@ -97,12 +120,12 @@ class LayoutBuilder:
 
 
 @pytest.fixture
-def layout(tmp_path) -> LayoutBuilder:
+def layout(tmp_path: Path) -> LayoutBuilder:
     return LayoutBuilder(tmp_path.resolve())
 
 
 @pytest.fixture
-def platform(layout) -> Path:
+def platform(layout: LayoutBuilder) -> Path:
     """The standard platform: a SQLite DB_URI and two projects with distinct names."""
     root = layout.platform_root(sample="platform_sqlite.conf")
     layout.project(root, "jaffle-shop", "jaffle_shop")
@@ -111,7 +134,7 @@ def platform(layout) -> Path:
 
 
 @pytest.fixture
-def lone_project(layout) -> Path:
+def lone_project(layout: LayoutBuilder) -> Path:
     """A dbt project that is not under any platform root."""
     return layout.project(layout.directory("checkout"), "jaffle-shop", "jaffle_shop")
 
@@ -132,16 +155,16 @@ class FakeDbtRunner:
 
     calls: list[list[str]] = []
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         pass
 
-    def invoke(self, args):
+    def invoke(self, args: list[str]) -> FakeResult:
         FakeDbtRunner.calls.append(list(args))
         return FakeResult()
 
 
 @pytest.fixture
-def fake_dbt(monkeypatch):
+def fake_dbt(monkeypatch: pytest.MonkeyPatch) -> type[FakeDbtRunner]:
     FakeDbtRunner.calls = []
     monkeypatch.setattr(cli, "dbtRunner", FakeDbtRunner)
     return FakeDbtRunner

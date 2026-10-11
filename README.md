@@ -368,11 +368,19 @@ dbtx config                                                 # what was resolved,
   `--target` work as usual.
 - Each project on a platform needs a unique `name:` in `dbt_project.yml`; dbtx warns
   when two folders declare the same one.
+- **Project-name claims.** The database records which folder owns each dbt project
+  name, so one name is never written by two folders, even on different hosts. The
+  first run of a name claims it for its folder; a run from another folder is refused.
+  Hosts sharing one database must use the same folder name for the same project.
+  `dbtx db projects` lists the claims; after renaming or moving a project folder,
+  `dbtx db projects rebind <name> --folder <new-folder>` moves its claim (refused while
+  the old folder still exists, or when the new one is not a project folder on the
+  platform, unless `--force`).
 
 **Standalone mode.** `--standalone-mode` runs one project without the platform: no
 config file, no database, no platform checks, and dbt's default project and profile
-lookup. Database flags (`--db-uri`, `--db-backend`, `--config-file`) contradict it and
-exit 2. `DBTX_DB_*` environment variables are ignored.
+lookup. Database flags (`--db-uri`, `--db-backend`, `--db-schema`, `--config-file`)
+contradict it and exit 2. `DBTX_DB_*` environment variables are ignored.
 
 ```console
 cd jaffle-shop && dbtx build --standalone-mode
@@ -385,6 +393,8 @@ then the environment. `.env` files are never read.
 |---|---|---|---|---|
 | Database backend | `--db-backend enabled\|disabled` | `DB_BACKEND=` | `DBTX_DB_BACKEND` | `enabled` |
 | Database URI | `--db-uri URI` | `DB_URI=` | `DBTX_DB_URI` | none |
+| Postgres schema | `--db-schema NAME` | `DB_SCHEMA=` | `DBTX_DB_SCHEMA` | `dbtx` |
+| Store adapter | `--db-adapter NAME` | `DB_ADAPTER=` | `DBTX_DB_ADAPTER` | the adapter for `DB_URI` |
 | Config file | `--config-file PATH` | | `DBTX_CONFIG_FILE` | `<platform root>/dbtx.conf` |
 
 - `dbtx.conf` is strict `KEY=VALUE`: `#` comment lines and quoted values are allowed;
@@ -396,9 +406,49 @@ then the environment. `.env` files are never read.
   `postgresql+psycopg://user@host:5432/dbname` (needs `pip install 'dbtx[postgres]'`).
   A relative SQLite path is relative to the config file's directory. Leave the password
   out of the URI to have libpq read it from `~/.pgpass` or `PGPASSWORD`.
+- `DB_SCHEMA` is the Postgres schema that holds dbtx's tables: lowercase letters,
+  digits and `_`. SQLite has no schemas, so setting it with a SQLite URI is an error.
+- `DB_ADAPTER` names the store adapter that talks to the database. Leave it unset to
+  use the default for `DB_URI` (the built-in `sqlite` or `postgresql`). Set it only to
+  use an adapter plugin instead (see below).
 - The database backend does not record anything yet. Until it does, a missing
   `DB_URI`, a duplicate project name, and running outside a platform without
-  `--standalone-mode` are warnings, not errors.
+  `--standalone-mode` are warnings, not errors, and dbt commands do not connect to
+  the database (no claim is made). `dbtx db` commands always use it.
+
+#### Database adapter plugins
+
+SQLite and Postgres are built in. **Store adapter plugins** add other databases, or
+other drivers or behaviour for SQLite and Postgres. A plugin is a separate Python
+package that registers a named `StoreAdapter` under the `dbtx.store_adapters`
+entry-point group. Which adapter serves `DB_URI`:
+
+- `DB_ADAPTER`, when set, names it. It must support the URI's database and driver.
+- Otherwise the built-in, when it supports the URI's database and driver. Installing a
+  plugin never changes this.
+- Otherwise the one installed plugin that does, e.g. for `duckdb+duckdb_engine:///...`
+  or `sqlite+pysqlcipher:///...`. If several do, set `DB_ADAPTER`.
+
+```ini
+DB_URI=sqlite:///.dbtx/dbtx.db
+# A plugin instead of the built-in sqlite adapter.
+DB_ADAPTER=custom_sqlite
+```
+
+Install a plugin **into the same Python environment as dbtx** (`dbtx-duckdb` is an
+example name, not a published package):
+
+```console
+pip install dbtx-duckdb                        # same virtualenv as dbtx
+pipx inject dbtx dbtx-duckdb                   # dbtx installed with pipx
+uv tool install dbtx --with dbtx-duckdb        # dbtx installed with uv tool
+```
+
+Putting a module on `PYTHONPATH` without installing it does not register it. An
+unknown `DB_ADAPTER` lists every adapter dbtx can see, and `dbtx config` shows which
+one serves `DB_URI`. See
+[docs/contributing/plugins/adapters.md](docs/contributing/plugins/adapters.md) for the
+adapter interface, writing a plugin, and the supported install methods.
 
 ### Using DBTX Exposures
 ```console

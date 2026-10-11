@@ -48,25 +48,25 @@ def client(docs_loc: Path) -> TestClient:
     return TestClient(create_app(docs_loc))
 
 
-def test_root_serves_index(client: TestClient):
+def test_root_serves_index(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "manifest.json" in response.text
     assert response.headers["content-type"].startswith("text/html")
 
 
-def test_index_html_path_also_serves_index(client: TestClient):
+def test_index_html_path_also_serves_index(client: TestClient) -> None:
     assert client.get("/index.html").status_code == 200
 
 
-def test_create_app_does_not_chdir(docs_loc: Path):
+def test_create_app_does_not_chdir(docs_loc: Path) -> None:
     """dbt's ServeTask chdirs the whole process into target/; this must not."""
     before = os.getcwd()
     create_app(docs_loc)
     assert os.getcwd() == before
 
 
-def test_docroot_survives_a_later_chdir(docs_loc: Path, tmp_path: Path):
+def test_docroot_survives_a_later_chdir(docs_loc: Path, tmp_path: Path) -> None:
     """The docroot is bound at construction, so the caller's cwd cannot move it."""
     app = create_app(docs_loc)
     elsewhere = tmp_path / "elsewhere"
@@ -79,12 +79,12 @@ def test_docroot_survives_a_later_chdir(docs_loc: Path, tmp_path: Path):
         os.chdir(before)
 
 
-def test_missing_docs_loc_is_rejected(tmp_path: Path):
+def test_missing_docs_loc_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ServerError):
         create_app(tmp_path / "nope")
 
 
-def test_docs_loc_without_index_is_rejected(tmp_path: Path):
+def test_docs_loc_without_index_is_rejected(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
     with pytest.raises(ServerError, match="dbt docs generate"):
@@ -96,24 +96,24 @@ def test_docs_loc_without_index_is_rejected(tmp_path: Path):
 # StaticFiles rather than driving new code, because the overlay and the docs
 # SPA both depend on it.
 
-def test_manifest_served_as_json(client: TestClient):
+def test_manifest_served_as_json(client: TestClient) -> None:
     response = client.get("/manifest.json")
     assert response.status_code == 200
     assert "application/json" in response.headers["content-type"]
     assert response.json() == {"nodes": {}}
 
 
-def test_catalog_served_as_json(client: TestClient):
+def test_catalog_served_as_json(client: TestClient) -> None:
     response = client.get("/catalog.json")
     assert response.status_code == 200
     assert "application/json" in response.headers["content-type"]
 
 
-def test_unknown_path_404s(client: TestClient):
+def test_unknown_path_404s(client: TestClient) -> None:
     assert client.get("/nope.json").status_code == 404
 
 
-def test_head_request_has_no_body_but_reports_length(client: TestClient):
+def test_head_request_has_no_body_but_reports_length(client: TestClient) -> None:
     response = client.head("/manifest.json")
     assert response.status_code == 200
     assert response.text == ""
@@ -125,7 +125,7 @@ def test_head_request_has_no_body_but_reports_length(client: TestClient):
     "/..%2F..%2Fpyproject.toml",
     "/%2e%2e/%2e%2e/pyproject.toml",
 ])
-def test_escaping_the_docroot_is_refused(client: TestClient, path: str):
+def test_escaping_the_docroot_is_refused(client: TestClient, path: str) -> None:
     """Never serve a file outside docs_loc, however the path is encoded."""
     assert client.get(path).status_code == 404
 
@@ -136,13 +136,13 @@ def test_escaping_the_docroot_is_refused(client: TestClient, path: str):
 # regenerated-in-place files must never be cached, content-hashed URLs can be
 # cached forever, and the big artifacts want conditional GETs.
 
-def test_index_html_is_not_cached(client: TestClient):
+def test_index_html_is_not_cached(client: TestClient) -> None:
     """`dbt docs generate` rewrites index.html under a running server."""
     assert "no-store" in client.get("/").headers.get("cache-control", "")
     assert "no-store" in client.get("/index.html").headers.get("cache-control", "")
 
 
-def test_sidecar_is_not_cached(docs_loc: Path):
+def test_sidecar_is_not_cached(docs_loc: Path) -> None:
     """`dbtx docs patch` rewrites the sidecar under a running server."""
     (docs_loc / "dbtx_runtime.json").write_text(
         json.dumps({"dbtx_schema_version": 1, "nodes": {}}), encoding="utf-8")
@@ -151,18 +151,18 @@ def test_sidecar_is_not_cached(docs_loc: Path):
     assert "no-store" in response.headers.get("cache-control", "")
 
 
-def test_manifest_has_an_etag(client: TestClient):
+def test_manifest_has_an_etag(client: TestClient) -> None:
     assert client.get("/manifest.json").headers.get("etag")
 
 
-def test_conditional_get_returns_304(client: TestClient):
+def test_conditional_get_returns_304(client: TestClient) -> None:
     etag = client.get("/manifest.json").headers["etag"]
     response = client.get("/manifest.json", headers={"If-None-Match": etag})
     assert response.status_code == 304
     assert response.content == b""
 
 
-def test_content_hashed_asset_is_cacheable(docs_loc: Path):
+def test_content_hashed_asset_is_cacheable(docs_loc: Path) -> None:
     """The overlay's script URL carries ?v=<hash>, so it can be immutable."""
     (docs_loc / "dbtx_docs.js").write_text("/* overlay */", encoding="utf-8")
     response = TestClient(create_app(docs_loc)).get("/dbtx_docs.js?v=abc123def456")
@@ -176,7 +176,7 @@ def test_content_hashed_asset_is_cacheable(docs_loc: Path):
     "/manifest.json?v=abc123def456",
     "/catalog.json?v=1",
 ])
-def test_version_param_alone_does_not_make_a_file_immutable(client: TestClient, path: str):
+def test_version_param_alone_does_not_make_a_file_immutable(client: TestClient, path: str) -> None:
     """Only the overlay asset is content-hashed, so only it can be immutable.
 
     `?v=` on a regenerated artifact is not a promise about its bytes: honouring
@@ -188,13 +188,13 @@ def test_version_param_alone_does_not_make_a_file_immutable(client: TestClient, 
     assert "immutable" not in response.headers.get("cache-control", "")
 
 
-def test_version_param_does_not_override_no_store(client: TestClient):
+def test_version_param_does_not_override_no_store(client: TestClient) -> None:
     assert "no-store" in client.get("/index.html?v=1").headers["cache-control"]
 
 
 # --- Pre-patch state and the overlay asset ----------------------------------
 
-def test_absent_sidecar_404s(client: TestClient):
+def test_absent_sidecar_404s(client: TestClient) -> None:
     """An unpatched docs dir is the normal pre-patch state, not an error.
 
     The overlay already treats a non-OK sidecar fetch as "no run data" rather
@@ -204,7 +204,7 @@ def test_absent_sidecar_404s(client: TestClient):
     assert client.get("/dbtx_runtime.json").status_code == 404
 
 
-def test_sidecar_served_when_present(docs_loc: Path):
+def test_sidecar_served_when_present(docs_loc: Path) -> None:
     (docs_loc / "dbtx_runtime.json").write_text(
         json.dumps({"dbtx_schema_version": 1, "history_limit": 5,
                     "nodes": {"model.proj.a": {"runs": []}}}), encoding="utf-8")
@@ -214,7 +214,7 @@ def test_sidecar_served_when_present(docs_loc: Path):
     assert "model.proj.a" in response.json()["nodes"]
 
 
-def test_overlay_asset_falls_back_to_the_packaged_copy(client: TestClient):
+def test_overlay_asset_falls_back_to_the_packaged_copy(client: TestClient) -> None:
     """`dbtx docs serve` works without a prior `dbtx docs install`."""
     response = client.get("/dbtx_docs.js")
     assert response.status_code == 200
@@ -222,7 +222,7 @@ def test_overlay_asset_falls_back_to_the_packaged_copy(client: TestClient):
     assert "javascript" in response.headers["content-type"]
 
 
-def test_overlay_asset_in_docs_loc_wins(docs_loc: Path):
+def test_overlay_asset_in_docs_loc_wins(docs_loc: Path) -> None:
     """An installed copy shadows the packaged one, so `install` stays authoritative."""
     (docs_loc / "dbtx_docs.js").write_text("/* installed copy */", encoding="utf-8")
     response = TestClient(create_app(docs_loc)).get("/dbtx_docs.js")
@@ -235,12 +235,16 @@ def test_overlay_asset_in_docs_loc_wins(docs_loc: Path):
 # tests/live/test_docs_server_boot.py.
 
 @pytest.fixture
-def stub_run(monkeypatch) -> None:
+def stub_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """Lets serve() wire everything up without blocking on the event loop."""
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
 
 
-def test_serve_does_not_open_a_browser_by_default(docs_loc: Path, monkeypatch, stub_run):
+def test_serve_does_not_open_a_browser_by_default(
+    docs_loc: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_run: None,
+) -> None:
     """Differs from dbt, whose --browser defaults to True (dbt/cli/params.py)."""
     opened = []
     monkeypatch.setattr(webbrowser, "open_new_tab", lambda url: opened.append(url))
@@ -248,7 +252,11 @@ def test_serve_does_not_open_a_browser_by_default(docs_loc: Path, monkeypatch, s
     assert opened == []
 
 
-def test_serve_opens_a_browser_when_asked(docs_loc: Path, monkeypatch, stub_run):
+def test_serve_opens_a_browser_when_asked(
+    docs_loc: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_run: None,
+) -> None:
     opened = []
     monkeypatch.setattr(webbrowser, "open_new_tab", lambda url: opened.append(url))
     serve(docs_loc, port=0, open_browser=True)
@@ -256,7 +264,11 @@ def test_serve_opens_a_browser_when_asked(docs_loc: Path, monkeypatch, stub_run)
     assert opened[0].startswith("http://127.0.0.1:")
 
 
-def test_browser_opens_at_the_port_the_kernel_chose(docs_loc: Path, monkeypatch, stub_run):
+def test_browser_opens_at_the_port_the_kernel_chose(
+    docs_loc: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_run: None,
+) -> None:
     """With --port 0 the URL has to come from the socket, not the argument."""
     opened = []
     monkeypatch.setattr(webbrowser, "open_new_tab", lambda url: opened.append(url))
@@ -264,7 +276,11 @@ def test_browser_opens_at_the_port_the_kernel_chose(docs_loc: Path, monkeypatch,
     assert opened[0] != "http://127.0.0.1:0"
 
 
-def test_serve_prints_the_url_and_the_docroot(docs_loc: Path, capsys, stub_run):
+def test_serve_prints_the_url_and_the_docroot(
+    docs_loc: Path,
+    capsys: pytest.CaptureFixture[str],
+    stub_run: None,
+) -> None:
     """Handing uvicorn a bound socket skips its own "Uvicorn running on" line.
 
     Without this the one thing a reader needs -- where to point a browser --
@@ -278,7 +294,7 @@ def test_serve_prints_the_url_and_the_docroot(docs_loc: Path, capsys, stub_run):
 
 
 def test_browser_opens_only_once_the_port_accepts_connections(
-        docs_loc: Path, monkeypatch, stub_run):
+        docs_loc: Path, monkeypatch: pytest.MonkeyPatch, stub_run: None) -> None:
     """dbt opens the browser before its server listens; this must not.
 
     Connecting from inside the `open_new_tab` call is the assertion: it only
@@ -308,11 +324,11 @@ def test_browser_opens_only_once_the_port_accepts_connections(
     # An IPv6 literal has to be bracketed to be a valid URL authority.
     ("::1", "http://[::1]:9001"),
 ])
-def test_browser_url(host: str, expected: str):
+def test_browser_url(host: str, expected: str) -> None:
     assert browser_url(host, 9001) == expected
 
 
-def test_build_server_carries_host_and_port(docs_loc: Path):
+def test_build_server_carries_host_and_port(docs_loc: Path) -> None:
     instance = build_server(docs_loc, host="0.0.0.0", port=9002)
     assert instance.config.host == "0.0.0.0"
     assert instance.config.port == 9002
@@ -323,12 +339,12 @@ def test_build_server_carries_host_and_port(docs_loc: Path):
 # binding up front is what keeps a bad port on the ServerError path.
 
 @pytest.mark.parametrize("port", [-1, 65536, 99999])
-def test_out_of_range_port_is_refused_before_binding(port: int):
+def test_out_of_range_port_is_refused_before_binding(port: int) -> None:
     with pytest.raises(ServerError, match="between 0 and 65535"):
         bind("127.0.0.1", port)
 
 
-def test_bind_returns_a_listening_socket():
+def test_bind_returns_a_listening_socket() -> None:
     sock = bind("127.0.0.1", 0)
     try:
         assert sock.getsockname()[1] != 0
@@ -338,7 +354,7 @@ def test_bind_returns_a_listening_socket():
         sock.close()
 
 
-def test_bind_refuses_a_port_already_in_use():
+def test_bind_refuses_a_port_already_in_use() -> None:
     """Two `dbtx docs serve` on one port must be an error, not a silent steal."""
     first = bind("127.0.0.1", 0)
     try:

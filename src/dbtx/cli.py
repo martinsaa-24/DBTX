@@ -6,6 +6,8 @@
     dbtx docs patch|install|status [options...]        overlay run data onto generated dbt docs
     dbtx docs serve --docs-loc DIR [options...]        serve the generated docs over uvicorn
     dbtx config                                        show the resolved dbtx configuration
+    dbtx db projects [rebind <name> --folder <folder> [--force]]
+                                                       list or move project-name claims
     dbtx <any other dbt command> [options...]           passed straight through to dbt
 
 Every command first loads and validates dbtx's configuration (dbtx.config); a problem
@@ -16,6 +18,8 @@ exits 2 before dbt starts. dbtx's own flags, accepted anywhere on the command li
     --config-file PATH       use this config file instead of <platform root>/dbtx.conf
     --db-backend enabled|disabled
     --db-uri URI
+    --db-schema NAME         the Postgres schema for dbtx's tables (default dbtx)
+    --db-adapter NAME        the store adapter (default: the one for DB_URI)
 """
 
 from __future__ import annotations
@@ -46,6 +50,8 @@ dbtx commands:
   dbtx docs patch|install|status [options...]          overlay run data onto generated dbt docs
   dbtx docs serve --docs-loc DIR [options...]          serve the generated docs over uvicorn
   dbtx config                                          show the resolved dbtx configuration
+  dbtx db projects [rebind <name> --folder <folder> [--force]]
+                                                       list or move project-name claims
   dbtx <any other dbt command> [options...]            passed straight through to dbt
 
 dbtx options, accepted anywhere on the command line:
@@ -54,6 +60,8 @@ dbtx options, accepted anywhere on the command line:
   --config-file PATH              use this config file instead of <platform root>/dbtx.conf
   --db-backend enabled|disabled   turn the database backend on or off
   --db-uri URI                    the database to use
+  --db-schema NAME                the Postgres schema for dbtx's tables (default dbtx)
+  --db-adapter NAME               the store adapter (default: the one for DB_URI)
 
 `dbtx docs --help` lists the docs subcommands. dbt's help follows.
 
@@ -72,6 +80,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"dbtx: {exc}", file=sys.stderr)
         return 2
     for warning in config.warnings:
+        print(f"dbtx: warning: {warning}", file=sys.stderr)
+
+    # The database part of the start-up checks (plan 6.6 step 8): connect, server
+    # version, tables, project-name guard. Also before dbt is ever started.
+    from dbtx.store.errors import StoreError
+    from dbtx.store.startup import run_startup_checks
+
+    try:
+        startup_warnings = run_startup_checks(config)
+    except StoreError as exc:
+        print(f"dbtx: {exc}", file=sys.stderr)
+        return 2
+    for warning in startup_warnings:
         print(f"dbtx: warning: {warning}", file=sys.stderr)
     args = list(config.argv)
 
@@ -127,9 +148,29 @@ def show_config(config: DbtxConfig) -> int:
             rows.append(("DB_URI", "not set"))
         else:
             rows.append(("DB_URI", f"{config.masked_db_uri()}  [{config.db_uri.source}]"))
+        assert config.db_schema is not None and config.db_adapter is not None
+        resolved = config.resolved_adapter()
+        if resolved is not None and not resolved[1].supports_schemas:
+            rows.append(("DB_SCHEMA", f"n/a ({resolved[1].display_name} has no schemas)"))
+        else:
+            rows.append(("DB_SCHEMA", f"{config.db_schema.value}  [{config.db_schema.source}]"))
+        if resolved is None and config.db_adapter.value is None:
+            rows.append(("DB_ADAPTER", "not set (the default for DB_URI)"))
+        elif resolved is None:
+            rows.append(("DB_ADAPTER", f"{config.db_adapter.value}  [{config.db_adapter.source}]"))
+        elif config.db_adapter.value is None:
+            from sqlalchemy.engine import make_url
+
+            url = make_url(config.db_uri.value)
+            pair = f"{url.get_backend_name()}+{url.get_driver_name()}"
+            rows.append(("DB_ADAPTER", f"{resolved[0]}  [default for {pair}]"))
+        else:
+            rows.append(("DB_ADAPTER", f"{resolved[0]}  [{config.db_adapter.source}]"))
     else:
         rows.append(("DB_BACKEND", "n/a (standalone mode has no database)"))
         rows.append(("DB_URI", "n/a (standalone mode has no database)"))
+        rows.append(("DB_SCHEMA", "n/a (standalone mode has no database)"))
+        rows.append(("DB_ADAPTER", "n/a (standalone mode has no database)"))
 
     for name in config.ignored_env_vars:
         rows.append(("ignored", f"{name} (standalone)"))
@@ -142,11 +183,15 @@ def show_config(config: DbtxConfig) -> int:
 
 
 def db_command(config: DbtxConfig, args: list[str]) -> int:
-    """`dbtx db ...`. Every subcommand needs platform mode; none is built yet."""
+    """`dbtx db ...`. Every subcommand needs platform mode."""
     if not config.is_platform:
         print("dbtx: database operations require platform mode", file=sys.stderr)
         return 2
     subcommand = args[0] if args else ""
+    if subcommand == "projects":
+        from dbtx.store.cli import projects_command
+
+        return projects_command(config, args[1:])
     print(
         f"dbtx: `dbtx db {subcommand}` is not available yet (planned for a later phase)",
         file=sys.stderr,

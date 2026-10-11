@@ -16,3 +16,11 @@ DB_URI=sqlite:///.dbtx/dbtx.db
 # Postgres (needs `pip install 'dbtx[postgres]'`). Leave the password out to have
 # libpq read it from ~/.pgpass, PGPASSFILE, PGPASSWORD or PGSERVICE.
 # DB_URI=postgresql+psycopg://dbtx@db.internal:5432/dbtx
+
+# Postgres only: the schema for dbtx's tables (default dbtx). An error with SQLite.
+# DB_SCHEMA=dbtx
+
+# The store adapter, by name. Unset (the default): the adapter for DB_URI's backend and
+# driver, which is the built-in for SQLite and Postgres. Set it to use an installed
+# adapter plugin instead; it must support DB_URI's database and driver.
+# DB_ADAPTER=sqlite

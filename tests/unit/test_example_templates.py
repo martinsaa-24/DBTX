@@ -1,25 +1,32 @@
 """The example project's extended templates, rendered with fixed rows (no warehouse)."""
 
 import re
+from collections.abc import Callable
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
-from dbtx.reports import render
+from dbtx.reports import Report, render
+from dbtx.templates import TemplateEngine
 
 BRAND = "Jaffle Shop · Analytics"
 
 
 @pytest.fixture
-def html(reports, templates, tmp_path):
-    def _render(name, columns, rows):
+def html(
+    reports: dict[str, Report], templates: TemplateEngine, tmp_path: Path
+) -> Callable[[str, list[str], list[tuple]], str]:
+    def _render(name: str, columns: list[str], rows: list[tuple]) -> str:
         [path] = [p for p in render(reports[name], columns, rows, tmp_path, templates) if p.suffix == ".html"]
         return path.read_text(encoding="utf-8")
 
     return _render
 
 
-def test_jaffle_base_style_is_inherited_by_every_child(html):
+def test_jaffle_base_style_is_inherited_by_every_child(
+    html: Callable[[str, list[str], list[tuple]], str],
+) -> None:
     leaderboard = html("customer_leaderboard", ["customer_name", "order_count", "lifetime_spend"], [("Ann", 2, Decimal("10"))])
     scorecard = html("store_scorecard", ["store_name", "order_count", "revenue"], [("A", 1, Decimal("1"))])
     finance = html("store_revenue_monthly", ["store_name", "revenue"], [("A", Decimal("1"))])
@@ -31,12 +38,16 @@ def test_jaffle_base_style_is_inherited_by_every_child(html):
         assert "border-collapse: collapse" in page  # integrated table style, two levels up
 
 
-def test_integrated_table_alone_has_no_house_style(html):
+def test_integrated_table_alone_has_no_house_style(
+    html: Callable[[str, list[str], list[tuple]], str],
+) -> None:
     page = html("top_customers", ["customer_name"], [("Ann",)])
     assert BRAND not in page and "--accent: #c2410c" not in page
 
 
-def test_finance_adds_banner_and_configured_totals(html):
+def test_finance_adds_banner_and_configured_totals(
+    html: Callable[[str, list[str], list[tuple]], str],
+) -> None:
     page = html(
         "store_revenue_monthly",
         ["store_name", "order_month", "order_count", "revenue", "tax_paid"],
@@ -46,7 +57,9 @@ def test_finance_adds_banner_and_configured_totals(html):
     assert "<td>Total</td><td></td><td>7</td><td>30.75</td><td>1.85</td>" in page
 
 
-def test_leaderboard_ranks_and_scales_bars(html):
+def test_leaderboard_ranks_and_scales_bars(
+    html: Callable[[str, list[str], list[tuple]], str],
+) -> None:
     page = html(
         "customer_leaderboard",
         ["customer_name", "order_count", "lifetime_spend"],
@@ -59,18 +72,22 @@ def test_leaderboard_ranks_and_scales_bars(html):
     assert "<small>order count: 12</small>" in page
 
 
-def test_leaderboard_is_reused_with_different_params(html):
+def test_leaderboard_is_reused_with_different_params(
+    html: Callable[[str, list[str], list[tuple]], str],
+) -> None:
     page = html("beverage_leaderboard", ["product_name", "product_type", "units_sold", "revenue"], [("tangaroo", "beverage", 1950, Decimal("11700"))])
     assert re.findall(r'class="val">([^<]+)', page) == ["1,950"]  # no prefix, 0 decimals
     assert "<small>" not in page  # no detail column configured
 
 
-def test_leaderboard_handles_no_rows(html):
+def test_leaderboard_handles_no_rows(html: Callable[[str, list[str], list[tuple]], str]) -> None:
     page = html("customer_leaderboard", ["customer_name", "order_count", "lifetime_spend"], [])
     assert '<ol class="board">' in page and "<li>" not in page
 
 
-def test_scorecard_tiles_sit_above_the_inherited_table(html):
+def test_scorecard_tiles_sit_above_the_inherited_table(
+    html: Callable[[str, list[str], list[tuple]], str],
+) -> None:
     page = html(
         "store_scorecard",
         ["store_name", "order_count", "revenue"],
