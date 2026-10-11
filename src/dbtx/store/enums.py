@@ -92,3 +92,29 @@ def enum_values(enum_class) -> list[str]:
     for member in enum_class:
         values.append(member.value)
     return values
+
+
+# run_results' `args.which` (dbt's leaf command name) → `invocation.command` (plan 5.2).
+# A command not listed here is not recorded (plan Q3).
+COMMAND_BY_WHICH: dict[str, InvocationCommand] = {
+    "build": InvocationCommand.BUILD,
+    "compile": InvocationCommand.COMPILE,
+    "test": InvocationCommand.TEST,
+    "run": InvocationCommand.RUN,
+    "seed": InvocationCommand.SEED,
+    "snapshot": InvocationCommand.SNAPSHOT,
+    "parse": InvocationCommand.PARSE,
+    "run-operation": InvocationCommand.RUN_OPERATION,
+    "freshness": InvocationCommand.SOURCE_FRESHNESS,
+    # `dbt source snapshot-freshness`: the deprecated alias of `source freshness`.
+    "snapshot-freshness": InvocationCommand.SOURCE_FRESHNESS,
+    "generate": InvocationCommand.DOCS_GENERATE,
+}
+
+
+def command_from_which(which: str) -> str | None:
+    """The stored command for run_results' `args.which`, or None: not recorded."""
+    command = COMMAND_BY_WHICH.get(which)
+    if command is None:
+        return None
+    return command.value

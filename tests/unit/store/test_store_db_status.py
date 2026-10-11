@@ -345,6 +345,6 @@ def test_dbtx_db_without_a_subcommand_shows_the_usage(
     monkeypatch.chdir(platform)
     assert cli.main(["db"]) == 2
     assert capsys.readouterr().err == (
-        "dbtx: usage: dbtx db init | upgrade | status | projects [rebind <name> --folder "
-        "<folder> [--force]]\n"
+        "dbtx: usage: dbtx db init | upgrade | status | load | projects [rebind <name> "
+        "--folder <folder> [--force]]\n"
     )

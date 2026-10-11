@@ -105,7 +105,7 @@ module:
 | `test_build.py` | `dbtx build`: selection, failing tests and models, report errors, passthrough |
 | `test_compile.py` | `dbtx compile`: validation and report SQL |
 | `test_docs_server_boot.py` | the docs server under real uvicorn (also marked `server`) |
-| `test_frozen_manifest.py` | `tests/fixtures/manifest.json` still matches the example project |
+| `test_frozen_manifest.py` | `tests/fixtures/manifest.json` and `run_results.json` still match the example project |
 
 Every test under `tests/live/` is marked `live` automatically by
 `tests/live/conftest.py`, so `pytest -m "not live"` skips the slow tier.
@@ -134,9 +134,20 @@ modifies anything uses `project`, which gives it a private copy (warehouse inclu
 its own `tmp_path`. This is how live tests stay independent while sharing one
 build.
 
-`manifest.json` is frozen from the example project. After changing
-`examples/jaffle_shop`, refresh it with `python scripts/freeze_manifest.py`;
-`test_frozen_manifest.py` fails while it is stale.
+`manifest.json` and `run_results.json` are frozen from the example project (the run
+results from a `dbt build` of a temporary copy, scrubbed of times, ids and paths).
+After changing `examples/jaffle_shop`, refresh both with
+`python scripts/freeze_manifest.py`; `test_frozen_manifest.py` fails while either is
+stale. `sources.json` is hand-written (the example has no source freshness): one
+`pass` and one `runtime error` entry, built with dbt's own artifact classes.
+`tests/conftest.py` names them `FROZEN_MANIFEST`, `FROZEN_RUN_RESULTS` and
+`FROZEN_SOURCES`.
+
+The whole suite runs the store in **strict mode** (`DBTX_DB_STRICT=1`, the autouse
+`store_strict_mode` fixture; `clean_env` keeps it): an app-enforced value dbtx does not
+know, such as a new dbt node status, raises instead of being stored with a warning. A
+test of the production behaviour removes the variable and resets
+`dbtx.store.validation._warned`.
 
 ## Where a new test goes
 
@@ -175,6 +186,14 @@ subpackage gets a folder once it has fixtures no other test uses.
 | migrations (`store/migrate.py`, `store/migrations/`): head, revision status, upgrade vs the models, downgrade | `test_store_migrations.py` |
 | `dbtx db init` and `dbtx db upgrade` (`store/cli.py`) | `test_store_db_migrate.py` |
 | `dbtx db status` and `StoreAdapter.database_file` (`store/cli.py`) | `test_store_db_status.py` |
+| the `which` → command table and app-enforced values (`store/enums.py`, `store/validation.py`) | `test_store_values.py` |
+| the manifest loader (`store/loaders/manifest.py`) | `test_store_loaders_manifest.py` |
+| the run-results loader, both artifact shapes (`store/loaders/run_results.py`) | `test_store_loaders_run_results.py` |
+| the manifest sync (`store/repositories/nodes.py`) | `test_store_nodes.py` |
+| the job queue (`store/repositories/jobs.py`) | `test_store_jobs.py` |
+| invocations and node results (`store/repositories/invocations.py`, `results.py`) | `test_store_invocations.py` |
+| reports and renders (`store/repositories/reports.py`) | `test_store_reports.py` |
+| `dbtx db load` (`store/cli.py`) | `test_store_db_load.py` |
 
 Every test, fixture and helper function is **type-annotated**, parameters and return
 value, so a reader can tell what `store`, `layout` or `rows` is without finding where

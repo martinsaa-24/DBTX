@@ -63,6 +63,7 @@ class ReportRender(Base):
     config_hash: Mapped[str] = mapped_column(sa.String(), nullable=False)
     status: Mapped[str] = mapped_column(sa.String(), nullable=False)
     detail: Mapped[str | None] = mapped_column(sa.String(), nullable=True)
-    paths: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)
+    # {format: path}, one per rendered format (plan 5.4).
+    paths: Mapped[dict[str, str] | None] = mapped_column(JSONType, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

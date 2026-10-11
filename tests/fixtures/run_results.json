@@ -1,0 +1,1434 @@
+{
+ "args": {
+  "allow_jinja_file_extensions": false,
+  "cache_selected_only": false,
+  "defer": false,
+  "empty": false,
+  "enable_grouped_warn_error_parser_logs": false,
+  "exclude": [],
+  "exclude_resource_types": [],
+  "export_saved_queries": false,
+  "favor_state": false,
+  "hints_enabled": true,
+  "include_saved_query": false,
+  "indirect_selection": "eager",
+  "introspect": true,
+  "invocation_command": "dbt build",
+  "latest_version_pointer_enabled_by_default": false,
+  "log_file_max_bytes": 10485760,
+  "log_format": "default",
+  "log_format_file": "debug",
+  "log_level": "info",
+  "log_level_file": "debug",
+  "log_path": ".",
+  "macro_debugging": false,
+  "maximum_seed_size_mib": 1,
+  "partial_parse": true,
+  "partial_parse_file_diff": true,
+  "populate_cache": true,
+  "print": true,
+  "printer_width": 80,
+  "profiles_dir": ".",
+  "project_dir": ".",
+  "quiet": true,
+  "require_all_warnings_handled_by_warn_error": true,
+  "require_batched_execution_for_custom_microbatch_strategy": true,
+  "require_corrected_analysis_fqns": false,
+  "require_explicit_package_overrides_for_builtin_materializations": true,
+  "require_generic_test_arguments_property": true,
+  "require_nested_cumulative_type_params": true,
+  "require_ref_searches_node_package_before_root": false,
+  "require_resource_names_without_spaces": true,
+  "require_source_and_semantic_model_names_without_spaces": false,
+  "require_sql_header_in_test_configs": false,
+  "require_unique_project_resource_names": false,
+  "require_valid_schema_from_generate_schema_name": false,
+  "require_yaml_configuration_for_mf_time_spines": true,
+  "resource_types": [],
+  "select": [],
+  "send_anonymous_usage_stats": false,
+  "show": false,
+  "show_all_deprecations": false,
+  "show_resource_report": false,
+  "skip_nodes_if_on_run_start_fails": true,
+  "snowflake_projects_otel": false,
+  "source_freshness_run_project_hooks": true,
+  "sqlparse": {
+   "MAX_GROUPING_DEPTH": null,
+   "MAX_GROUPING_TOKENS": null
+  },
+  "state_modified_compare_more_unrendered_values": true,
+  "state_modified_compare_vars": false,
+  "static_parser": true,
+  "strict_mode": false,
+  "support_custom_ref_kwargs": false,
+  "upload_to_artifacts_ingest_api": false,
+  "use_catalogs_v2": false,
+  "use_colors": true,
+  "use_colors_file": true,
+  "use_fast_test_edges": false,
+  "use_v2_parser": false,
+  "v2_parser": "dbt-core-experimental-parser parse",
+  "validate_macro_args": true,
+  "vars": {},
+  "version_check": true,
+  "warn_error_options": {
+   "error": [],
+   "silence": [],
+   "warn": []
+  },
+  "which": "build",
+  "write_json": true
+ },
+ "elapsed_time": 300.0,
+ "metadata": {
+  "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+  "dbt_version": "1.12.5",
+  "env": {},
+  "generated_at": "2026-01-01T00:05:00Z",
+  "invocation_id": "00000000-0000-4000-8000-000000000001",
+  "invocation_started_at": "2026-01-01T00:00:00Z"
+ },
+ "results": [
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.beverage_leaderboard"
+  },
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.customer_leaderboard"
+  },
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.executive_dashboard"
+  },
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.jaffle_mix"
+  },
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.store_revenue_monthly"
+  },
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.store_scorecard"
+  },
+  {
+   "adapter_response": {},
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": "NO-OP",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "no-op",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "exposure.jaffle_shop.top_customers"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "with order_stats as (\n    select\n        customer_id,\n        min(ordered_at) as first_ordered_at,\n        max(ordered_at) as last_ordered_at,\n        count(*) as order_count,\n        sum(order_total) as lifetime_spend\n    from \"jaffle_shop\".\"main\".\"orders\"\n    group by 1\n)\n\nselect\n    customers.customer_id,\n    customers.customer_name,\n    order_stats.first_ordered_at,\n    order_stats.last_ordered_at,\n    coalesce(order_stats.order_count, 0) as order_count,\n    coalesce(order_stats.lifetime_spend, 0) as lifetime_spend,\n    case\n        when order_stats.order_count is null then 'prospect'\n        when order_stats.order_count = 1 then 'new'\n        else 'returning'\n    end as customer_type\nfrom \"jaffle_shop\".\"main\".\"stg_customers\" as customers\nleft join order_stats using (customer_id)",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"customers\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.customers"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "with  __dbt__cte__int_order_items_priced as (\nselect\n    items.order_item_id,\n    items.order_id,\n    products.product_id,\n    products.product_name,\n    products.product_type,\n    products.product_price\nfrom \"jaffle_shop\".\"main\".\"stg_order_items\" as items\njoin \"jaffle_shop\".\"main\".\"stg_products\" as products using (product_id)\n), item_counts as (\n    select\n        order_id,\n        count(*) as item_count,\n        count(*) filter (where product_type = 'jaffle') as jaffle_count,\n        count(*) filter (where product_type = 'beverage') as beverage_count,\n        sum(product_price) as items_subtotal\n    from __dbt__cte__int_order_items_priced\n    group by 1\n)\n\nselect\n    orders.order_id,\n    orders.customer_id,\n    orders.store_id,\n    orders.ordered_at,\n    orders.order_date,\n    orders.subtotal,\n    orders.tax_paid,\n    orders.order_total,\n    item_counts.item_count,\n    item_counts.jaffle_count,\n    item_counts.beverage_count,\n    item_counts.items_subtotal\nfrom \"jaffle_shop\".\"main\".\"stg_orders\" as orders\njoin item_counts using (order_id)",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"orders\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.orders"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "with __dbt__cte__int_order_items_priced as (\nselect\n    items.order_item_id,\n    items.order_id,\n    products.product_id,\n    products.product_name,\n    products.product_type,\n    products.product_price\nfrom \"jaffle_shop\".\"main\".\"stg_order_items\" as items\njoin \"jaffle_shop\".\"main\".\"stg_products\" as products using (product_id)\n) select\n    product_name,\n    product_type,\n    count(*) as units_sold,\n    sum(product_price) as revenue\nfrom __dbt__cte__int_order_items_priced\ngroup by 1, 2",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"product_mix\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.product_mix"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    id as customer_id,\n    name as customer_name\nfrom \"jaffle_shop\".\"main\".\"raw_customers\"",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"stg_customers\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.stg_customers"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    id as order_item_id,\n    order_id,\n    sku as product_id\nfrom \"jaffle_shop\".\"main\".\"raw_items\"",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"stg_order_items\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.stg_order_items"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    id as order_id,\n    customer as customer_id,\n    store_id,\n    ordered_at,\n    cast(ordered_at as date) as order_date,\n    cast(subtotal / 100.0 as decimal(12, 2)) as subtotal,\n    cast(tax_paid / 100.0 as decimal(12, 2)) as tax_paid,\n    cast(order_total / 100.0 as decimal(12, 2)) as order_total\nfrom \"jaffle_shop\".\"main\".\"raw_orders\"",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"stg_orders\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.stg_orders"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    sku as product_id,\n    name as product_name,\n    type as product_type,\n    cast(price / 100.0 as decimal(12, 2)) as product_price\nfrom \"jaffle_shop\".\"main\".\"raw_products\"",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"stg_products\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.stg_products"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    id as store_id,\n    name as store_name,\n    cast(opened_at as timestamp) as opened_at,\n    tax_rate\nfrom \"jaffle_shop\".\"main\".\"raw_stores\"",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"stg_stores\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.stg_stores"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    stores.store_name,\n    stores.opened_at,\n    count(*) as order_count,\n    count(distinct orders.customer_id) as customer_count,\n    sum(orders.subtotal) as revenue,\n    cast(sum(orders.subtotal) / count(*) as decimal(12, 2)) as avg_order_value\nfrom \"jaffle_shop\".\"main\".\"orders\" as orders\njoin \"jaffle_shop\".\"main\".\"stg_stores\" as stores using (store_id)\ngroup by 1, 2",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"store_performance\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.store_performance"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "select\n    stores.store_name,\n    cast(date_trunc('month', orders.ordered_at) as date) as order_month,\n    count(*) as order_count,\n    sum(orders.subtotal) as revenue,\n    sum(orders.tax_paid) as tax_paid\nfrom \"jaffle_shop\".\"main\".\"orders\" as orders\njoin \"jaffle_shop\".\"main\".\"stg_stores\" as stores using (store_id)\ngroup by 1, 2",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"store_revenue_monthly\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "model.jaffle_shop.store_revenue_monthly"
+  },
+  {
+   "adapter_response": {
+    "_message": "INSERT 1000",
+    "code": "INSERT",
+    "rows_affected": 1000
+   },
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "INSERT 1000",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "seed.jaffle_shop.raw_customers"
+  },
+  {
+   "adapter_response": {
+    "_message": "INSERT 17957",
+    "code": "INSERT",
+    "rows_affected": 17957
+   },
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "INSERT 17957",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "seed.jaffle_shop.raw_items"
+  },
+  {
+   "adapter_response": {
+    "_message": "INSERT 8000",
+    "code": "INSERT",
+    "rows_affected": 8000
+   },
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "INSERT 8000",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "seed.jaffle_shop.raw_orders"
+  },
+  {
+   "adapter_response": {
+    "_message": "INSERT 10",
+    "code": "INSERT",
+    "rows_affected": 10
+   },
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "INSERT 10",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "seed.jaffle_shop.raw_products"
+  },
+  {
+   "adapter_response": {
+    "_message": "INSERT 6",
+    "code": "INSERT",
+    "rows_affected": 6
+   },
+   "batch_results": null,
+   "compiled": null,
+   "compiled_code": null,
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "INSERT 6",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "seed.jaffle_shop.raw_stores"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nwith all_values as (\n\n    select\n        customer_type as value_field,\n        count(*) as n_records\n\n    from \"jaffle_shop\".\"main\".\"customers\"\n    group by customer_type\n\n)\n\nselect *\nfrom all_values\nwhere value_field not in (\n    'prospect','new','returning'\n)\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.accepted_values_customers_customer_type__prospect__new__returning.68ec28ce07"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nwith all_values as (\n\n    select\n        product_type as value_field,\n        count(*) as n_records\n\n    from \"jaffle_shop\".\"main\".\"stg_products\"\n    group by product_type\n\n)\n\nselect *\nfrom all_values\nwhere value_field not in (\n    'jaffle','beverage'\n)\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.accepted_values_stg_products_product_type__jaffle__beverage.f391aac071"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "-- Order total must equal subtotal plus tax, and subtotal must equal the sum of item prices.\nselect order_id\nfrom \"jaffle_shop\".\"main\".\"orders\"\nwhere abs(order_total - (subtotal + tax_paid)) > 0.005\n   or abs(subtotal - items_subtotal) > 0.005",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.assert_order_totals_reconcile"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect customer_id\nfrom \"jaffle_shop\".\"main\".\"customers\"\nwhere customer_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect customer_id\nfrom \"jaffle_shop\".\"main\".\"orders\"\nwhere customer_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect order_id\nfrom \"jaffle_shop\".\"main\".\"orders\"\nwhere order_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect product_name\nfrom \"jaffle_shop\".\"main\".\"product_mix\"\nwhere product_name is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_product_mix_product_name.ef68e8046f"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect customer_id\nfrom \"jaffle_shop\".\"main\".\"stg_customers\"\nwhere customer_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect order_item_id\nfrom \"jaffle_shop\".\"main\".\"stg_order_items\"\nwhere order_item_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_stg_order_items_order_item_id.26a7e2bc35"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect order_id\nfrom \"jaffle_shop\".\"main\".\"stg_orders\"\nwhere order_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect product_id\nfrom \"jaffle_shop\".\"main\".\"stg_products\"\nwhere product_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_stg_products_product_id.6373b0acf3"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect store_id\nfrom \"jaffle_shop\".\"main\".\"stg_stores\"\nwhere store_id is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_stg_stores_store_id.ebecf07ec6"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect store_name\nfrom \"jaffle_shop\".\"main\".\"store_performance\"\nwhere store_name is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_store_performance_store_name.c4e88c8e4f"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\n\n\nselect revenue\nfrom \"jaffle_shop\".\"main\".\"store_revenue_monthly\"\nwhere revenue is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.not_null_store_revenue_monthly_revenue.2849948e3f"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nwith child as (\n    select customer_id as from_field\n    from \"jaffle_shop\".\"main\".\"orders\"\n    where customer_id is not null\n),\n\nparent as (\n    select customer_id as to_field\n    from \"jaffle_shop\".\"main\".\"customers\"\n)\n\nselect\n    from_field\n\nfrom child\nleft join parent\n    on child.from_field = parent.to_field\n\nwhere parent.to_field is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nwith child as (\n    select product_id as from_field\n    from \"jaffle_shop\".\"main\".\"stg_order_items\"\n    where product_id is not null\n),\n\nparent as (\n    select product_id as to_field\n    from \"jaffle_shop\".\"main\".\"stg_products\"\n)\n\nselect\n    from_field\n\nfrom child\nleft join parent\n    on child.from_field = parent.to_field\n\nwhere parent.to_field is null\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.relationships_stg_order_items_product_id__product_id__ref_stg_products_.886a82c26c"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    customer_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"customers\"\nwhere customer_id is not null\ngroup by customer_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    order_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"orders\"\nwhere order_id is not null\ngroup by order_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    product_name as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"product_mix\"\nwhere product_name is not null\ngroup by product_name\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_product_mix_product_name.54edee3dcd"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    customer_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"stg_customers\"\nwhere customer_id is not null\ngroup by customer_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    order_item_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"stg_order_items\"\nwhere order_item_id is not null\ngroup by order_item_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_stg_order_items_order_item_id.90e333a108"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    order_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"stg_orders\"\nwhere order_id is not null\ngroup by order_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    product_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"stg_products\"\nwhere product_id is not null\ngroup by product_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_stg_products_product_id.7d950a1467"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    store_id as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"stg_stores\"\nwhere store_id is not null\ngroup by store_id\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_stg_stores_store_id.2e80d074c2"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "\n    \n    \n\nselect\n    store_name as unique_field,\n    count(*) as n_records\n\nfrom \"jaffle_shop\".\"main\".\"store_performance\"\nwhere store_name is not null\ngroup by store_name\nhaving count(*) > 1\n\n\n",
+   "execution_time": 60.0,
+   "failures": 0,
+   "message": null,
+   "overload_results": null,
+   "relation_name": null,
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.unique_store_performance_store_name.9c5c2ab020"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
+   "compiled_code": "-- Surfaces unusually frequent customers. Warn-only and expected to return rows:\n-- it exercises the rule that test warnings do not block reports.\n\nselect customer_id, order_count\nfrom \"jaffle_shop\".\"main\".\"customers\"\nwhere order_count > 100",
+   "execution_time": 60.0,
+   "failures": 9,
+   "message": "Got 9 results, configured to warn if != 0",
+   "overload_results": null,
+   "relation_name": null,
+   "status": "warn",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "test.jaffle_shop.warn_high_frequency_customers"
+  }
+ ]
+}

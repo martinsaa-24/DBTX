@@ -12,6 +12,17 @@ from dbtx.templates import TemplateEngine, TemplateRegistry
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLE_PROJECT = REPO / "examples" / "jaffle_shop"
 FROZEN_MANIFEST = Path(__file__).parent / "fixtures" / "manifest.json"
+# A real `dbt build` of the example project, scrubbed (scripts/freeze_manifest.py).
+FROZEN_RUN_RESULTS = Path(__file__).parent / "fixtures" / "run_results.json"
+# Hand-written: the example project has no source freshness (plan 8).
+FROZEN_SOURCES = Path(__file__).parent / "fixtures" / "sources.json"
+
+
+@pytest.fixture(autouse=True)
+def store_strict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The whole suite runs the store in strict mode (plan 8, D9): an app-enforced
+    value dbtx does not know raises instead of being stored with a warning."""
+    monkeypatch.setenv("DBTX_DB_STRICT", "1")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

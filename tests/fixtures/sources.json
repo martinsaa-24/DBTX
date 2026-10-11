@@ -1,0 +1,51 @@
+{
+ "elapsed_time": 20.0,
+ "metadata": {
+  "dbt_schema_version": "https://schemas.getdbt.com/dbt/sources/v3.json",
+  "dbt_version": "1.12.5",
+  "env": {},
+  "generated_at": "2026-01-02T00:01:00Z",
+  "invocation_id": "00000000-0000-4000-8000-000000000002",
+  "invocation_started_at": "2026-01-02T00:00:00Z"
+ },
+ "results": [
+  {
+   "adapter_response": {},
+   "criteria": {
+    "error_after": {
+     "count": 24,
+     "period": "hour"
+    },
+    "filter": null,
+    "warn_after": {
+     "count": 12,
+     "period": "hour"
+    }
+   },
+   "execution_time": 5.0,
+   "max_loaded_at": "2026-01-01T23:00:00Z",
+   "max_loaded_at_time_ago_in_s": 3630.0,
+   "snapshotted_at": "2026-01-02T00:00:30Z",
+   "status": "pass",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-02T00:00:11Z",
+     "name": "compile",
+     "started_at": "2026-01-02T00:00:10Z"
+    },
+    {
+     "completed_at": "2026-01-02T00:00:15Z",
+     "name": "execute",
+     "started_at": "2026-01-02T00:00:11Z"
+    }
+   ],
+   "unique_id": "source.jaffle_shop.ecom.raw_orders"
+  },
+  {
+   "error": "Database Error\n  Catalog Error: Table with name raw_customers does not exist!",
+   "status": "runtime error",
+   "unique_id": "source.jaffle_shop.ecom.raw_customers"
+  }
+ ]
+}

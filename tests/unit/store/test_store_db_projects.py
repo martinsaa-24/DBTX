@@ -414,16 +414,6 @@ def test_rebind_needs_a_folder_name_not_a_path(
 # --------------------------------------------------------------------------------------
 
 
-def test_other_db_commands_are_not_available_yet(
-    platform: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(platform)
-    assert cli.main(["db", "load", "--project-dir", "jaffle-shop"]) == 2
-    assert "not available yet" in capsys.readouterr().err
-
-
 def test_usage_lists_db_projects(
     layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,

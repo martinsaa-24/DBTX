@@ -28,9 +28,10 @@ CONFIG_SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "config"
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test depends on the developer's shell: clear what dbtx and dbt read."""
+    """No test depends on the developer's shell: clear what dbtx and dbt read.
+    `DBTX_DB_STRICT`, the test switch `store_strict_mode` sets, stays."""
     for name in list(os.environ):
-        if name.startswith("DBTX_"):
+        if name.startswith("DBTX_") and name != "DBTX_DB_STRICT":
             monkeypatch.delenv(name)
     monkeypatch.delenv("DBT_PROJECT_DIR", raising=False)
     monkeypatch.delenv("DBT_PROFILES_DIR", raising=False)

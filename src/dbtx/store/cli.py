@@ -1,4 +1,4 @@
-"""`dbtx db ...` commands (plan 6.7): `init`, `upgrade`, `status`, `projects`. Each
+"""`dbtx db ...` commands (plan 6.7): `init`, `upgrade`, `status`, `load`, `projects`. Each
 needs platform mode (checked by `cli.main`).
 
 Unlike the start-up checks of dbt commands, a `dbtx db` command always uses the
@@ -7,6 +7,8 @@ database when it runs: that is its whole job.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -14,23 +16,40 @@ from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
 import yaml
+from sqlalchemy.orm import Session
 
 from dbtx.config import DBT_PROJECT_FILE_NAME, ENV_DB_URI, project_folders
+from dbtx.reports import ReportDefinitionError, discover_reports
 from dbtx.store import Store, migrate
 from dbtx.store import models as m
 from dbtx.store import open_store
+from dbtx.store.adapters.base import StoreAdapter
 from dbtx.store.errors import StoreError
+from dbtx.store.loaders.manifest import ManifestRows, manifest_rows, read_manifest
+from dbtx.store.loaders.run_results import (
+    InvocationRecord,
+    freshness_result_rows,
+    invocation_from_run_results,
+    invocation_from_sources,
+    run_result_rows,
+)
+from dbtx.store.repositories import invocations
+from dbtx.store.repositories import reports as report_repo
+from dbtx.store.repositories import results
+from dbtx.store.repositories.nodes import sync_manifest
 from dbtx.store.repositories.projects import list_claims, rebind_project
-from dbtx.store.startup import check_database, error_reason
+from dbtx.store.startup import check_database, check_project_claim, error_reason
+from dbtx.templates import TemplateEngine, TemplateError, TemplateRegistry
 
 if TYPE_CHECKING:
     from dbtx.config import DbtxConfig
 
 PROJECTS_USAGE = "usage: dbtx db projects [rebind <name> --folder <folder> [--force]]"
 DB_USAGE = (
-    "usage: dbtx db init | upgrade | status | projects [rebind <name> --folder <folder> "
-    "[--force]]"
+    "usage: dbtx db init | upgrade | status | load | projects [rebind <name> --folder "
+    "<folder> [--force]]"
 )
+LOAD_USAGE = "usage: dbtx db load --project-dir DIR [--run-loc DIR]"
 
 
 def open_checked_store(config: DbtxConfig) -> Store:
@@ -270,6 +289,189 @@ def print_rows(rows: list[tuple[str, str]]) -> None:
 def print_warnings(warnings: list[str]) -> None:
     for warning in warnings:
         print(f"dbtx: warning: {warning}", file=sys.stderr)
+
+
+# --------------------------------------------------------------------------------------
+# dbtx db load
+# --------------------------------------------------------------------------------------
+
+
+def load_command(config: DbtxConfig, args: list[str]) -> int:
+    """`dbtx db load --project-dir DIR [--run-loc DIR]`: import a run's artifacts."""
+    valid, run_loc = parse_load_args(args)
+    if not valid:
+        print(f"dbtx: {LOAD_USAGE}", file=sys.stderr)
+        return 2
+    return run_and_report(load_artifacts, config, run_loc)
+
+
+def parse_load_args(args: list[str]) -> tuple[bool, Optional[str]]:
+    """(valid, --run-loc or None). `--project-dir` is accepted and skipped: the
+    configuration has already resolved it."""
+    run_loc = None
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("--project-dir", "--run-loc"):
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
+                return False, None
+            if token == "--run-loc":
+                run_loc = args[i + 1]
+            i += 2
+            continue
+        if token.startswith("--project-dir="):
+            i += 1
+            continue
+        if token.startswith("--run-loc="):
+            run_loc = token[len("--run-loc=") :]
+            if run_loc == "":
+                return False, None
+            i += 1
+            continue
+        return False, None
+    return True, run_loc
+
+
+def load_artifacts(config: DbtxConfig, run_loc_text: Optional[str]) -> int:
+    assert config.project_dir is not None
+    project_dir = config.project_dir
+    if run_loc_text is None:
+        run_loc = project_dir / "target"
+    else:
+        run_loc = Path(run_loc_text)
+        if not run_loc.is_absolute():
+            run_loc = Path.cwd() / run_loc
+
+    manifest_path = run_loc / "manifest.json"
+    if not manifest_path.is_file():
+        raise StoreError(f"{run_loc} has no manifest.json")
+    run_results_path = run_loc / "run_results.json"
+    sources_path = run_loc / "sources.json"
+    if not run_results_path.is_file() and not sources_path.is_file():
+        raise StoreError(f"{run_loc} has no run_results.json or sources.json; nothing to load")
+
+    try:
+        manifest = read_manifest(manifest_path)
+    except Exception as exc:  # dbt's schema-version and parse errors
+        raise StoreError(f"cannot read {manifest_path}: {exc}") from None
+    rows = manifest_rows(manifest)
+    if rows.project != config.project_name:
+        raise StoreError(
+            f"{manifest_path} belongs to project {rows.project!r}, but {project_dir.name} is "
+            f"project {config.project_name!r}"
+        )
+    run_results = read_json(run_results_path)
+    sources = read_json(sources_path)
+
+    warnings: list[str] = []
+    try:
+        reports = discover_reports(manifest, TemplateEngine(TemplateRegistry.for_project(project_dir)), project_dir)
+    except (ReportDefinitionError, TemplateError) as exc:
+        reports = None
+        warnings.append(f"reports not loaded: {exc}")
+
+    manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    lines = []
+    store = open_checked_store(config)
+    try:
+        warnings.extend(check_project_claim(store, config))
+        with store.begin() as session:
+            counts = sync_manifest(session, store.adapter, rows)
+            lines.append(
+                f"loaded the manifest of {rows.project} from {run_loc}: {counts.nodes} nodes, "
+                f"{counts.versions} versions, {counts.edges} edges, {counts.removed_nodes} newly removed"
+            )
+            if reports is not None:
+                stored, removed = report_repo.sync(session, store.adapter, rows.project, reports, rows.seen_at)
+                line = f"loaded {stored} reports"
+                if removed > 0:
+                    line += f", {removed} newly removed"
+                lines.append(line)
+            checksums = {}
+            for node in rows.nodes:
+                checksums[node["unique_id"]] = node["checksum"]
+            if run_results is not None:
+                line = load_invocation(
+                    session,
+                    store.adapter,
+                    rows,
+                    "run_results.json",
+                    invocation_from_run_results(run_results),
+                    run_result_rows(run_results, rows.project, checksums),
+                    manifest_hash,
+                    manifest.metadata.invocation_id,
+                    warnings,
+                )
+                if line is not None:
+                    lines.append(line)
+            if sources is not None:
+                line = load_invocation(
+                    session,
+                    store.adapter,
+                    rows,
+                    "sources.json",
+                    invocation_from_sources(sources),
+                    freshness_result_rows(sources, rows.project),
+                    manifest_hash,
+                    manifest.metadata.invocation_id,
+                    warnings,
+                )
+                if line is not None:
+                    lines.append(line)
+    finally:
+        store.dispose()
+
+    for line in lines:
+        print(line)
+    print_warnings(warnings)
+    return 0
+
+
+def read_json(path: Path) -> Optional[dict]:
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise StoreError(f"cannot read {path}: {exc}") from None
+
+
+def load_invocation(
+    session: Session,
+    adapter: StoreAdapter,
+    rows: ManifestRows,
+    artifact: str,
+    record: InvocationRecord,
+    result_rows: list[dict],
+    manifest_hash: str,
+    manifest_invocation_id: Optional[str],
+    warnings: list[str],
+) -> Optional[str]:
+    """Store one artifact's invocation and node results. Returns the line to print, or
+    None (with a warning) for a command dbtx does not record."""
+    if record.command is None:
+        which = record.args.get("which", "?")
+        warnings.append(f"{artifact} is from `dbt {which}`, which dbtx does not record")
+        return None
+    invocations.start(
+        session, adapter, project=rows.project, adapter_type=rows.adapter_type, record=record, run_by=None, host=None
+    )
+    stored, skipped = results.load(session, adapter, rows.project, result_rows)
+    result = invocations.result_from_statuses(row["status"] for row in result_rows)
+    # The manifest was written by the invocation named in its metadata (plain dbt).
+    this_manifest = manifest_hash if record.invocation_id == manifest_invocation_id else None
+    invocations.finish(
+        session,
+        record.invocation_id,
+        end_time=record.end_time,
+        result=result,
+        error_message=None,
+        manifest_hash=this_manifest,
+    )
+    line = f"loaded invocation {record.invocation_id} ({record.command}, {result}): {stored} node results"
+    if skipped > 0:
+        line += f", {skipped} skipped (no stored node)"
+    return line
 
 
 # --------------------------------------------------------------------------------------

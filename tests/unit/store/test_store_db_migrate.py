@@ -299,5 +299,5 @@ def test_an_unknown_db_subcommand_shows_the_usage(
     assert cli.main(["db", "nope"]) == 2
     assert capsys.readouterr().err == (
         "dbtx: unknown command `dbtx db nope`; usage: dbtx db init | upgrade | status | "
-        "projects [rebind <name> --folder <folder> [--force]]\n"
+        "load | projects [rebind <name> --folder <folder> [--force]]\n"
     )

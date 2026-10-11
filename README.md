@@ -440,6 +440,28 @@ dbtx db status     # backend, URI, adapter, server version, schema revision, row
   projects (one file suits one host) or sits inside a project's dbt clean target
   (`dbt clean` would delete it).
 
+#### Importing plain dbt runs: `dbtx db load`
+
+Runs made with plain `dbt` (or anything that writes dbt's artifacts) can be imported
+after the fact:
+
+```console
+dbtx db load --project-dir jaffle-shop                      # reads jaffle-shop/target/
+dbtx db load --project-dir jaffle-shop --run-loc ci/artifacts
+```
+
+- It reads `manifest.json` and `run_results.json` and/or `sources.json` (source
+  freshness), and stores the project's nodes, their versions and edges, its reports,
+  and each run with its node results.
+- The manifest must belong to the project folder, and the folder claims the project
+  name as a run does.
+- Loading the same artifacts again changes nothing, and older runs can be loaded after
+  newer ones.
+- An artifact from a command dbtx does not record (`dbt ls`, `debug`, ...) is skipped
+  with a warning.
+- The artifacts do not say which target ran or who ran it, so `target` is stored as
+  `unknown` (unless `--target` was passed) and the user and host are left empty.
+
 #### Database adapter plugins
 
 SQLite and Postgres are built in. **Store adapter plugins** add other databases, or

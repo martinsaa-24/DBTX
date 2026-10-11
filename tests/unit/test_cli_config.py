@@ -99,7 +99,7 @@ def test_help_shows_dbtx_usage_before_dbt_help(
     assert out.startswith("usage: dbtx")
     for text in [
         "dbtx build", "dbtx compile", "dbtx templates", "dbtx docs", "dbtx config",
-        "dbtx db init", "dbtx db upgrade", "dbtx db status", "dbtx db projects",
+        "dbtx db init", "dbtx db upgrade", "dbtx db status", "dbtx db load", "dbtx db projects",
     ]:
         assert text in out
     for flag in [
@@ -291,13 +291,3 @@ def test_dbtx_db_requires_platform_mode(
     monkeypatch.chdir(layout.directory("empty"))
     assert cli.main(["db", "status", "--standalone-mode"]) == 2
     assert "require platform mode" in capsys.readouterr().err
-
-
-def test_dbtx_db_is_not_available_yet(
-    platform: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(platform)
-    assert cli.main(["db", "load", "--project-dir", "jaffle-shop"]) == 2
-    assert "not available yet" in capsys.readouterr().err

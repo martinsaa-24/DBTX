@@ -1230,6 +1230,30 @@ through migrations.
 **Done when:** loading the example project's artifacts twice produces identical row
 counts and no errors.
 
+**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+[phase4_state.md](phase4_state.md). Deviations from this section and section 5:
+- **Out-of-order loads (5.1):** the plan's node upsert would let an older manifest
+  loaded later restore an old checksum or name and undo a removal, and a node only in
+  the older manifest would never be marked removed. So sighting times merge
+  (least / greatest), the other columns and a cleared `removed_at` are updated only on
+  rows this manifest is the newest for (`last_seen_at` equals its time after the
+  merge), and removals are marked against the project's newest manifest time (the
+  latest `node.last_seen_at`). Loaded in order, this is exactly the plan's behaviour.
+  Reports follow the same rules
+- the post-hoc path reads `manifest.json` into a dbt Manifest (`read_manifest`), so
+  there is one mapping; edges come from each node's `depends_on.nodes`, what dbt
+  builds `parent_map` from
+- post-hoc `target` is `args.target` when given, else `'unknown'` (5.2 only describes
+  the in-process sources); post-hoc `run_by` / `host` are NULL
+- `manifest_hash` goes only on the invocation named in the manifest's
+  `metadata.invocation_id`
+- the render-lifecycle writes are repository functions here (`insert_pending_renders`,
+  `mark_render_running`, `mark_render_finished`, `render_paths`); the scheduler
+  observer that calls them is Phase 5. `ReportRender.paths` is annotated
+  `dict[str, str]` (the plan's {format: path}; the column was already JSON)
+- the argv → command mapping is left for the Phase 5 recorder; Phase 4 needs only the
+  `which` table
+
 ### Phase 5: Runner integration
 - `recorder.py`; `ReportScheduler(on_change=...)`; wiring in `runner.build`,
   `runner.compile_project` and the pass-through branch.

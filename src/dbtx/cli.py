@@ -8,6 +8,7 @@
     dbtx config                                        show the resolved dbtx configuration
     dbtx db init | upgrade                             create or migrate dbtx's tables
     dbtx db status                                     report on the database
+    dbtx db load --project-dir DIR [--run-loc DIR]     import a plain dbt run's artifacts
     dbtx db projects [rebind <name> --folder <folder> [--force]]
                                                        list or move project-name claims
     dbtx <any other dbt command> [options...]           passed straight through to dbt
@@ -55,6 +56,7 @@ dbtx commands:
   dbtx db init                                         create (Postgres: and its schema) or migrate dbtx's tables
   dbtx db upgrade                                      migrate dbtx's tables to this version
   dbtx db status                                       report on the database: revision, row counts
+  dbtx db load --project-dir DIR [--run-loc DIR]       import a plain dbt run's artifacts
   dbtx db projects [rebind <name> --folder <folder> [--force]]
                                                        list or move project-name claims
   dbtx <any other dbt command> [options...]            passed straight through to dbt
@@ -210,11 +212,9 @@ def db_command(config: DbtxConfig, args: list[str]) -> int:
 
         return projects_command(config, args[1:])
     if subcommand == "load":
-        print(
-            "dbtx: `dbtx db load` is not available yet (planned for a later phase)",
-            file=sys.stderr,
-        )
-        return 2
+        from dbtx.store.cli import load_command
+
+        return load_command(config, args[1:])
     from dbtx.store.cli import DB_USAGE
 
     if subcommand == "":
