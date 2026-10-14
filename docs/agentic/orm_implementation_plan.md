@@ -799,7 +799,7 @@ The spec (`orm_to_implement.yml`, now `src/dbtx/store/schema.yml`) is now **vers
   table (`node_version`, `node_edge`, `node_result`, `report`, `report_render`)
   already reaches `project` through `node` or `invocation`, so the registry is
   enforced by the database and not only by dbtx.
-- **`job.project`:** nullable, FK → `project`. The Phase 6 worker can tell which
+- **`job.project`:** nullable, FK → `project`. The Phase 7 worker can tell which
   project a queued job is for. It is `NULL` for the stub job rows created from an
   external `--vars job_id` run (5.2).
 
@@ -1096,7 +1096,7 @@ reviewable commit or PR.
 **Done when:** `dbtx config` prints resolved values with sources, and every existing
 test passes unchanged.
 
-**Status: implemented (2026-10-10), uncommitted.** Progress and details are in
+**Status: implemented (2026-10-10), committed in `725da35`.** Progress and details are in
 [phase0_state.md](phase0_state.md). Deviations from this section, all recorded there:
 - config errors and warnings are printed to **stderr**, so they never corrupt output
   another tool parses (`dbtx ls --output json`)
@@ -1124,7 +1124,7 @@ test passes unchanged.
 **Done when:** `Base.metadata.create_all()` succeeds on SQLite and Postgres and the
 parity test passes.
 
-**Status: implemented (2026-10-10), uncommitted.** Progress and details are in
+**Status: implemented (2026-10-10), committed in `9e04997`.** Progress and details are in
 [phase1_state.md](phase1_state.md). Deviations from this section:
 - the spec was **moved** (`git mv`), not copied, to `src/dbtx/store/schema.yml` (D3), so
   there is one copy; links in this plan point at the new path
@@ -1156,7 +1156,7 @@ parity test passes.
 **Done when:** a single parametrised `store` fixture (`sqlite-memory`, `sqlite-file`,
 `postgres`) runs every adapter test.
 
-**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+**Status: implemented (2026-10-11), committed in `02fc5d9`.** Progress and details are in
 [phase2_state.md](phase2_state.md). Deviations from this section:
 - the database start-up checks (connect, version floor, tables, G2) are complete and
   tested, but for dbt commands they run only once `ENFORCE_DB_REQUIREMENTS` is on
@@ -1196,7 +1196,7 @@ parity test passes.
 **Done when:** `create_all` is used only in unit-test fixtures; everything else goes
 through migrations.
 
-**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+**Status: implemented (2026-10-11), committed in `5d69c94`.** Progress and details are in
 [phase3_state.md](phase3_state.md); adding a revision is in
 `docs/contributing/migrations.md`. Deviations from this section:
 - no `include_schemas`: the tables reach `DB_SCHEMA` through the engine's
@@ -1230,7 +1230,7 @@ through migrations.
 **Done when:** loading the example project's artifacts twice produces identical row
 counts and no errors.
 
-**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+**Status: implemented (2026-10-11), committed in `3eea72e`.** Progress and details are in
 [phase4_state.md](phase4_state.md). Deviations from this section and section 5:
 - **Out-of-order loads (5.1):** the plan's node upsert would let an older manifest
   loaded later restore an old checksum or name and undo a removal, and a node only in
@@ -1289,7 +1289,7 @@ counts and no errors.
 **Done when:** `dbtx build` with a store configured matches the existing console output
 exactly, and the database holds the run.
 
-**Status: implemented (2026-10-11), uncommitted.** Progress and details are in
+**Status: implemented (2026-10-11), committed in `5eacb79`.** Progress and details are in
 [phase5_state.md](phase5_state.md). Deviations from this section and sections 5.2–5.7:
 - `ENFORCE_DB_REQUIREMENTS` is deleted, not first flipped: every check takes its
   enforced branch. Bare `dbtx docs` (dbtx's docs help) now counts as a help request, so
@@ -1331,7 +1331,97 @@ exactly, and the database holds the run.
   live test shared the first test's warehouse (autouse `fresh_duckdb_environment`)
 - a `CHANGELOG.md` was added (the repository had none) for the breaking change
 
-### Phase 6 (follow-up, separate plan): Consumers
+### Phase 6: Isolated runs (run folders, job ids, warm cache, docs site)
+
+Agreed with the user after Phase 5 (2026-10-12). User-facing behaviour is described
+in [docs/flows/usage.md](../flows/usage.md), [execution.md](../flows/execution.md) and
+[docs_refresh.md](../flows/docs_refresh.md). Platform mode only: every option below is
+an error in standalone mode, which keeps dbt's own `target/` and `logs/`.
+
+- **Spec v3** (migration `0002`): `node_result.compiled_code` and
+  `node_result.relation_name` (nullable strings, from dbt's run results; NULL for
+  source freshness and post-hoc artifacts without them), `invocation.run_folder`
+  (nullable string: the run's folder; NULL for standalone-era or `db load` runs).
+- **`LOG_ROOT_LOCATION`** (`--log-root-location`, `LOG_ROOT_LOCATION=`,
+  `DBTX_LOG_ROOT_LOCATION`): the root of the run folders. Required in platform mode for
+  the commands that run in a run folder (exit 2, like `DB_URI`); a relative path is
+  resolved against the layer that set it (6.6 step 7). `--log-root-location` with
+  `--standalone-mode` → exit 2; `DBTX_LOG_ROOT_LOCATION` is ignored in standalone.
+- **Job id:** every platform invocation that runs in a run folder has one: `--job-id ID`
+  (a plain folder name), or a uuid4 dbtx generates. dbt receives it as the environment
+  variable `DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID` (recorded by dbt in `run_results.json`
+  `metadata.env.DBTX_JOB_ID`; does not invalidate the partial-parse cache). `DBTX_JOB_ID`
+  in `--vars` → exit 2 in platform mode; allowed in standalone. `--job-id` in
+  standalone → exit 2. The recorder takes the job id from the configuration.
+  `read_job_id` prefers `DBTX_JOB_ID` (environment, then vars) over the legacy
+  `job_id` var.
+- **Run folder:** `<LOG_ROOT_LOCATION>/<dbt project name>/<YYYY-MM-DD>/<HH>/<job id>/`
+  (UTC, the hour floored). Already exists → exit 2 before dbt starts (catches a reused
+  job id within the hour only; accepted). Created after the start-up checks pass. The
+  project's partial-parse cache (`<project>/<target-path>/partial_parse.msgpack`) is
+  copied in (temp file + rename) when present. Every dbt invocation of the command
+  (dbtx's internal parse and ls included) gets `--target-path <run folder>` and
+  `--log-path <run folder>`; a user's own `--target-path` / `--log-path` → exit 2.
+- Commands with a run folder: the recorded commands (`build`, `compile`, `run`, `test`,
+  `seed`, `snapshot`, `parse`, `run-operation`, `source freshness`, `docs generate`).
+- **`dbtx warm-cache [dbt parse options]`** (platform only): `dbt parse --no-write-json`
+  into the project's own target folder: writes only the partial-parse cache, so the
+  docs site there is untouched. Not recorded, no run folder, no database needed.
+- **Docs site = the project's target folder** (`<project>/<target-path>`), which runs
+  no longer write to:
+  - after `build`, `run`, `test`, `seed`, `snapshot` (commands that execute nodes): the
+    run folder's `reports/` (when present) is copied into `<docs site>/reports/`, then
+    the site is patched with the run (`dbtx docs patch` internally). Best-effort (D5):
+    a problem is one warning, never a different exit code. No docs site yet (no
+    `index.html` / `manifest.json`) → a note, nothing patched
+  - after `docs generate`: `index.html`, `manifest.json`, `catalog.json` are copied
+    from the run folder into the docs site. The user then runs `dbtx docs install`
+    (docs_refresh.md)
+  - `dbtx docs install`, `status`, `serve`: `--docs-loc` defaults to the project's docs
+    site in platform mode (the project from `--project-dir`); `dbtx docs patch` from the
+    command line keeps explicit `--docs-loc` / `--run-loc`
+- **Tests:** the parity and migration tests for v3; config (option layers, requirement,
+  standalone rejections, job id rules, path rejections, folder layout and the exists
+  guard); the run folder (created only after the checks, cache copied, argv and
+  environment for every dbt invocation, recorder's job id and run folder); warm-cache;
+  docs copying and auto-patch; live tests on the platform fixture (artifacts in the run
+  folder, warm cache used, duplicate job id refused, docs generate copied, the site
+  patched after a build).
+- **Design impacts** (accepted, not addressed in this phase):
+  - **Run folders are never deleted.** Each run keeps its own `manifest.json` (several MB
+    for a large project), `run_results.json`, `compiled/`, `run/`, `reports/` and
+    `dbt.log`, so disk use under `LOG_ROOT_LOCATION` grows with every run. `dbt clean`
+    only knows the project's target path; nothing prunes old run folders. Operators
+    clean them up themselves (by date folder) until a retention rule is designed
+  - **Duplicate job ids are caught only within the hour** (the folder check); the user
+    accepted this for now
+  - **Tools that read the previous run from the target path** (`dbt retry`, `--state`,
+    `--defer`) find nothing there: see [backlog.md](backlog.md)
+
+**Status: implemented (2026-10-12), uncommitted.** Progress and details are in
+[phase6_state.md](phase6_state.md). Deviations from this section:
+- the run folder uses the project folder's name when `dbt_project.yml` has no usable
+  `name:` (dbt reports that itself)
+- `--job-id` on a command without a run folder → exit 2; `DBTX_JOB_ID` in `--vars` is
+  refused for every dbt command in platform mode, not only those with a run folder
+- revision `0002` names the Postgres schema in its ALTER statements
+  (`op.get_context().version_table_schema`): Alembic's ALTERs bypass the engine's
+  `schema_translate_map` (now a rule in `docs/contributing/migrations.md`)
+- dbt caches `DBT_ENV_CUSTOM_ENV_*` per process; `runs.job_id_for_dbt` resets that
+  cache on the way in and out, so a second command in one process records its own job
+  id
+- the after-run docs-site notes (no site yet, no run_results.json) and the "patched"
+  line go to stdout; problems to stderr as warnings
+- **schema changes are deliberate (user decision after Phase 6):** the start-up checks
+  never create or migrate tables, SQLite included (this replaces 5.5's "a missing store
+  is created on first open for SQLite" and 6.6 step 8's "SQLite behind head →
+  auto-upgrade"); only `dbtx db init` / `dbtx db upgrade` change the schema.
+  `StoreAdapter.upgrades_automatically` is removed (AD14 superseded in part)
+- also fixed: `docs patch`'s "no job id" line names both sources; the README's docs
+  example sequence (broken since Phase 5: no `--standalone-mode`) now shows the
+  platform flow and a standalone variant
+
+### Phase 7 (follow-up, separate plan): Consumers
 Not part of this delivery, listed so the schema choices are checked against them:
 - `dbtx docs patch --from-store`: build the `dbtx_runtime.json` history from
   `node_result` (index `(project, unique_id, completed_at)`) instead of accumulating it
@@ -1356,13 +1446,19 @@ Not part of this delivery, listed so the schema choices are checked against them
 - Strict mode (`DBTX_DB_STRICT=1`) is set autouse for the whole suite.
 - Frozen `run_results.json` and `sources.json` fixtures next to
   `tests/fixtures/manifest.json`, produced by a small extension to
-  `scripts/freeze_manifest.py`, so loader tests don't need dbt to run. The example
-  project has no source freshness config, so the `sources.json` fixture is
-  hand-trimmed to a passing entry and a `runtime error` entry.
+  `scripts/freeze_manifest.py`, so loader tests don't need dbt to run. (Until
+  2026-10-13 the example had no source freshness and `sources.json` was hand-written;
+  the example now has a source, a snapshot and a macro, and all three fixtures are
+  frozen from real dbt runs.)
 - CI:
   - a job running `pytest -m "not live"` (the Postgres tests start their own server, or
     use a service container through `--postgres-uri`)
   - a Python matrix of 3.10 and 3.14 (the D10 floor and the dev venv)
+  - **Implemented (2026-10-14):** `ci/setup.sh` + `ci/build.sh` (`ci/run.sh`), run by
+    `.github/workflows/ci.yml` on a 3.10 / 3.14 matrix and runnable locally with the same
+    `CICD_*` settings. Beyond the plan it also runs the live tests, lints with ruff
+    (pyflakes' rules) and smoke-tests the built wheel. See
+    `docs/contributing/ci.md`
 
 ---
 

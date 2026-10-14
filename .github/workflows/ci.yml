@@ -1,0 +1,52 @@
+# dbtx CI. The work is done by ci/run.sh (ci/setup.sh + ci/build.sh), the same scripts a
+# developer runs locally; this file only provides the machine: a RAM disk (tmpfs) at
+# /mnt/cicd and uv. See docs/contributing/ci.md.
+name: CI
+
+on:
+  # Pull requests into main. GitHub tests the PR's merge commit (the PR branch merged
+  # into the current main), so github.sha below is the code that would land on main.
+  # Re-runs on every push to the PR branch.
+  pull_request:
+    branches: [main]
+  # On demand: Actions tab -> CI -> Run workflow, on any branch (tests its latest commit).
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: lint, tests, package (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported Python (pyproject: >=3.10) and the newest.
+        python: ["3.10", "3.14"]
+    env:
+      CICD_ROOT: /mnt/cicd
+      CICD_PYTHON: ${{ matrix.python }}
+      CICD_REF: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.0"
+
+      - name: Workspace on a RAM disk (tmpfs)
+        run: |
+          sudo mkdir -p /mnt/cicd
+          sudo mount -t tmpfs -o size=4g,mode=0777 tmpfs /mnt/cicd
+
+      - name: Set up, lint, test, package (ci/run.sh)
+        run: ci/run.sh
+
+      - name: Keep the reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-python-${{ matrix.python }}
+          # The reports and the wheel, and the parallel test runs' logs.
+          path: |
+            /mnt/cicd/out
+            .build
+          if-no-files-found: ignore

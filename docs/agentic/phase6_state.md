@@ -356,6 +356,10 @@ type-annotated; a test for some backends only uses an `ON_*` list, never a skip.
     the live log's end, then "tests failed (logs: .../.build)", exit 1; `sh ci/build.sh
     --nope` → "unknown argument '--nope'". The full run is the user's
   - `docs/contributing/ci.md`: parallel by default, `--sequential`, `.build/`, `sh`
+- **CI triggers (user's request):** the workflow runs on pull requests into `main` (GitHub
+  tests the merge commit, so `CICD_REF: ${{ github.sha }}` is the code that would land)
+  and on demand (`workflow_dispatch`); plain pushes no longer start it. Not verified on
+  GitHub (nothing pushed). `docs/contributing/ci.md` updated
 
 ## Decisions made during implementation
 

@@ -109,6 +109,10 @@ As with dbt nodes, a report that is skipped (upstream failure or failing test) g
 SQL files, and a report whose query fails keeps its `run` file for debugging. SQL stays out
 of `target/reports/`, so that folder can be published as-is.
 
+In platform mode `target/` here means the run's own folder (see
+[Run folders](#run-folders)); the rendered reports are also copied into the project's
+docs site, `<project>/target/reports/`.
+
 ### Report Templates
 
 HTML output always names its template. There is no default. A template is a Jinja file
@@ -387,8 +391,10 @@ dbtx config                                                 # what was resolved,
 
 **Standalone mode.** `--standalone-mode` runs one project without the platform: no
 config file, no database, no platform checks, and dbt's default project and profile
-lookup. Database flags (`--db-uri`, `--db-backend`, `--db-schema`, `--config-file`)
-contradict it and exit 2. `DBTX_DB_*` environment variables are ignored.
+lookup. Database flags (`--db-uri`, `--db-backend`, `--db-schema`, `--config-file`) and
+run-folder flags (`--log-root-location`, `--job-id`) contradict it and exit 2. `DBTX_*`
+environment variables are ignored. Outputs go to the project's own `target/` and
+`logs/`, as with plain dbt.
 
 ```console
 cd jaffle-shop && dbtx build --standalone-mode
@@ -404,6 +410,8 @@ then the environment. `.env` files are never read.
 | Postgres schema | `--db-schema NAME` | `DB_SCHEMA=` | `DBTX_DB_SCHEMA` | `dbtx` |
 | Store adapter | `--db-adapter NAME` | `DB_ADAPTER=` | `DBTX_DB_ADAPTER` | the adapter for `DB_URI` |
 | Config file | `--config-file PATH` | | `DBTX_CONFIG_FILE` | `<platform root>/dbtx.conf` |
+| Run folder root | `--log-root-location DIR` | `LOG_ROOT_LOCATION=` | `DBTX_LOG_ROOT_LOCATION` | none; **required** |
+| Job id | `--job-id ID` | | | a new one per run |
 
 - `dbtx.conf` is strict `KEY=VALUE`: `#` comment lines and quoted values are allowed;
   unknown or duplicate keys, `export` and `${...}` are errors. See
@@ -420,6 +428,10 @@ then the environment. `.env` files are never read.
 - `DB_ADAPTER` names the store adapter that talks to the database. Leave it unset to
   use the default for `DB_URI` (the built-in `sqlite` or `postgresql`). Set it only to
   use an adapter plugin instead (see below).
+- `LOG_ROOT_LOCATION` is the root of the [run folders](#run-folders). Commands that
+  run in a run folder (the recorded commands below) need it, whatever `DB_BACKEND`
+  says; a relative path is relative to the config file's directory (or the current
+  directory, from the CLI or the environment).
 - With the backend enabled, a command that records runs (below) needs `DB_URI`;
   without one it exits 2 before dbt starts. Commands that do not touch the database
   (`ls`, `debug`, `deps`, `docs serve`, `templates`, ...) never need it, and
@@ -431,7 +443,54 @@ then the environment. `.env` files are never read.
 >   `--standalone-mode` to keep running a single project without the platform, or set
 >   up a platform root with a `dbtx.conf`;
 > - a platform with no `DB_URI`: set one, or pass `--db-backend disabled` (or
->   `DB_BACKEND=disabled` in `dbtx.conf`) to run without recording.
+>   `DB_BACKEND=disabled` in `dbtx.conf`) to run without recording;
+> - a database without dbtx's tables: run `dbtx db init` once (SQLite stores are no
+>   longer created or migrated implicitly; after upgrading dbtx, run `dbtx db upgrade`).
+>
+> **Upgrading from a version without run folders.** Platform runs no longer write to
+> the project's `target/`: set `LOG_ROOT_LOCATION` (exit 2 without it), look for a
+> run's artifacts in its run folder, and drop `--target-path` / `--log-path` and
+> `DBTX_JOB_ID` in `--vars` from platform command lines (exit 2; use `--job-id`).
+
+#### Run folders
+
+In platform mode every run of a recorded command (below) gets its own folder, so runs
+never overwrite each other's artifacts and every run can be reviewed afterwards:
+
+```
+<LOG_ROOT_LOCATION>/<project>/<YYYY-MM-DD>/<HH>/<job id>/   # date and hour in UTC
+  manifest.json  run_results.json  compiled/  run/  reports/  dbt.log  ...
+```
+
+- **Job id:** every run has one, retries included. Pass `--job-id ID` (a plain folder
+  name), or dbtx generates one. dbt receives it as `DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID`, so
+  it is recorded in `run_results.json` (`metadata.env.DBTX_JOB_ID`), in the run history
+  and in the docs overlay. A run whose folder already exists (the same job id within
+  the hour) is refused with exit 2.
+- dbt is given `--target-path` and `--log-path` pointing at the run folder, for every
+  invocation of the command (dbtx's internal parse and `ls` included). Passing your own
+  is an error.
+- **Partial parsing:** `dbtx warm-cache` refreshes the project's partial-parse cache in
+  its own `target/` without running anything (`dbt parse --no-write-json`: only
+  `partial_parse.msgpack` is written). Every run copies it into its folder, so dbt
+  parses only what changed. Run it after deploying or merging new code, with the same
+  `--target` the runs use: a different target, profile or CLI `--vars` makes dbt parse
+  everything again. Keep `env_var('DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID')` out of
+  `dbt_project.yml` and `profiles.yml` for the same reason.
+- **The docs site** is the project's own `target/`, which runs no longer write to.
+  After `build`, `run`, `test`, `seed` and `snapshot`, dbtx copies the run's rendered
+  `reports/` there and patches the site with the run. `dbtx docs generate` copies the
+  new site (`index.html`, `manifest.json`, `catalog.json`) there; run `dbtx docs
+  install` afterwards to put dbtx's overlay back. `dbtx docs install`, `status` and
+  `serve` default `--docs-loc` to it. See
+  [docs/flows/docs_refresh.md](docs/flows/docs_refresh.md).
+- **Run folders are never deleted:** disk use under `LOG_ROOT_LOCATION` grows with every
+  run, and `dbt clean` only removes the project's `target/` (the docs site and the warm
+  cache). Prune old run folders yourself.
+- How both modes behave: [docs/flows/usage.md](docs/flows/usage.md) (options and modes),
+  [docs/flows/execution.md](docs/flows/execution.md) (step by step) and
+  [docs/flows/commands.md](docs/flows/commands.md) (what each command does and does not
+  do: run folder, recording, docs patching).
 
 #### Run history store
 
@@ -443,15 +502,17 @@ connect to a database.
 
 What one run stores:
 
-- **The invocation:** dbt's invocation id (the one in `target/run_results.json`), the
+- **The invocation:** dbt's invocation id (the one in the run's `run_results.json`), the
   command, start and end time, result (`success`, `warning` or `failure`), dbt version,
   adapter type, target (dbt's resolved target, even without `--target`), selector,
   dbt's `args` (with `DBT_ENV_SECRET_*` values scrubbed, as dbt writes them to
   `run_results.json`; any other secret passed as a plain var is stored as dbt writes
-  it), the job id (`--vars '{job_id: ...}'`), user and host, and the sha256 of the
+  it), the job id, the run folder, user and host, and the sha256 of the
   `manifest.json` the run wrote.
 - **A result for every node** dbt ran: status, timings, thread, message, failures,
-  rows affected and adapter response.
+  rows affected, adapter response, and the compiled SQL dbt ran with the relation it
+  built or tested (for a failure, the exact SQL that failed; for models this is the
+  `select`, without dbt's `create ... as` wrapper, which is in the run folder's `run/`).
 - **The project's nodes over time:** every model, source, seed, snapshot, test, unit
   test and exposure, each checksum it has had, the edges between them, and when each
   was first and last seen and removed.
@@ -462,9 +523,9 @@ What one run stores:
 How it behaves:
 
 - Everything is checked **before dbt starts**: the configuration, the connection, the
-  schema revision (SQLite is created and migrated automatically; Postgres needs
-  `dbtx db init` / `upgrade`) and the project-name claim. A problem exits 2 and dbt
-  never runs.
+  schema revision (a database without dbtx's tables, or behind this dbtx version,
+  stops with `run dbtx db init` / `run dbtx db upgrade`) and the project-name claim. A
+  problem exits 2 and dbt never runs.
 - Once dbt has started, **recording never changes the run**: the console output and
   the exit code are dbt's (and dbtx's reports'). If a write fails, dbtx prints one
   `dbtx: run history not recorded (invocation ...)` warning and the run carries on.
@@ -487,13 +548,14 @@ dbtx db upgrade    # migrate the tables to this dbtx version's schema
 dbtx db status     # backend, URI, adapter, server version, schema revision, row counts
 ```
 
-- **SQLite needs no setup.** dbtx creates the file and its tables the first time it
-  uses the database, and migrates them after you upgrade dbtx. `dbtx db init` does the
-  same on demand.
-- **Postgres is never changed implicitly.** A database without dbtx's tables, or one
-  behind this dbtx version, stops the command (exit 2) with `run dbtx db init` or
-  `run dbtx db upgrade`. `dbtx db init` creates `DB_SCHEMA` when the database user is
-  allowed to; otherwise an administrator creates it first.
+- **Schema changes are deliberate, on every backend.** Only these two commands create
+  or migrate dbtx's tables: run `dbtx db init` once for a new platform (SQLite: it also
+  creates the file), and `dbtx db upgrade` after upgrading dbtx. Any other command on a
+  database without dbtx's tables, or behind this dbtx version, stops (exit 2) with
+  `run dbtx db init` or `run dbtx db upgrade`. A SQLite file that does not exist yet is
+  refused the same way, without being created (in-memory SQLite is unaffected).
+- On Postgres, `dbtx db init` creates `DB_SCHEMA` when the database user is allowed
+  to; otherwise an administrator creates it first.
 - A database migrated by a newer dbtx is refused: upgrade dbtx instead.
 - `dbtx db status` only reports. It creates nothing (not even a SQLite file), works
   with the backend disabled or no `DB_URI`, and warns when a SQLite file holds several
@@ -568,7 +630,12 @@ dbtx templates                           # templates this project can use, and w
 ```
 
 ### Using DBTX Docs
-Docs run data (`--docs-loc` holds the generated docs, `--run-loc` the run's `target/`):
+In platform mode the docs site is kept current by the runs themselves (see
+[Run folders](#run-folders)); `dbtx docs install`, `status` and `serve` default
+`--docs-loc` to the project's `target/`. The commands below take explicit locations, as
+standalone mode always does and `dbtx docs patch` always does.
+
+Docs run data (`--docs-loc` holds the generated docs, `--run-loc` the run's artifacts):
 ```console
 dbtx docs patch --docs-loc target --run-loc target        # merge this run into the docs
 dbtx docs patch --docs-loc docs/ --run-loc target         # ...docs published elsewhere
@@ -587,89 +654,81 @@ dbtx docs serve --docs-loc target --host 0.0.0.0          # reachable off this m
 
 #### DBTX Docs Example Sequence
 
-End to end on `examples/jaffle_shop`, run from the repo root. Two shells: one serving the
-docs, one running models and patching. dbt resolves `profiles.yml` from the project folder,
-so each dbt-facing command needs both `--project-dir` and `--profiles-dir`.
+End to end on `examples/jaffle_shop`, a project on the `examples/` platform (its
+`dbtx.conf` sets `DB_URI` and `LOG_ROOT_LOCATION=.dbtx/logs`). Run from the project
+folder with `--platform-dir ..`, so dbt finds the example's DuckDB file there.
 
-Shell 1 — populate the warehouse, generate dbt's docs, attach the overlay:
+Shell 1 — create dbtx's tables (once), warm the cache, build, generate the docs site and
+attach the overlay:
 
 ```console
-$ dbtx build --no-reports --project-dir examples/jaffle_shop --profiles-dir examples/jaffle_shop
-...
-20:11:46  Done. PASS=40 WARN=1 ERROR=0 SKIP=0 NO-OP=7 REUSED=0 TOTAL=48
+$ cd examples/jaffle_shop
+$ dbtx db init --platform-dir ..
+created dbtx's tables in sqlite:///.../examples/.dbtx/dbtx.db (revision 0002)
 
-$ dbtx docs generate --project-dir examples/jaffle_shop --profiles-dir examples/jaffle_shop
-...
-20:11:52  Catalog written to .../examples/jaffle_shop/target/catalog.json
+$ dbtx warm-cache --platform-dir ..
+dbtx: warmed the partial-parse cache .../examples/jaffle_shop/target/partial_parse.msgpack
 
-$ dbtx docs install --docs-loc examples/jaffle_shop/target
+$ dbtx build --platform-dir ..
+...
+dbtx docs: no docs site in .../examples/jaffle_shop/target to patch; run `dbtx docs generate`, then `dbtx docs install`
+
+$ dbtx docs generate --platform-dir ..
+...
+dbtx docs: copied index.html, manifest.json, catalog.json to .../examples/jaffle_shop/target; run `dbtx docs install` to add dbtx's overlay
+
+$ dbtx docs install --platform-dir ..
 dbtx docs: overlay installed
-  examples/jaffle_shop/target/index.html
-  examples/jaffle_shop/target/dbtx_docs.js
+  target/index.html
+  target/dbtx_docs.js
 ```
 
-Shell 2 — serve, and leave it running. It serves `target/`, so the sidecar and the overlay
-asset are picked up alongside dbt's own artifacts:
+Shell 2 — serve the site, and leave it running:
 
 ```console
-$ dbtx docs serve --docs-loc examples/jaffle_shop/target
-dbtx docs: serving /.../examples/jaffle_shop/target
+$ cd examples/jaffle_shop && dbtx docs serve --platform-dir ..
+dbtx docs: serving .../examples/jaffle_shop/target
   http://127.0.0.1:8080  (ctrl-c to quit)
-INFO:     Started server process [19924]
-INFO:     Application startup complete.
 ```
 
-`serve` takes `--docs-loc`, like the other dbtx docs subcommands, rather than dbt's
-`--project-dir`: it serves a directory of generated docs and never reads the project.
-
-Shell 1 — the run/patch loop. Refresh the browser after each patch; the overlay re-fetches
-the sidecar on load, so the server does not need restarting:
+Shell 1 — each run patches the site as it finishes; refresh the browser to see it (the
+overlay re-fetches the sidecar on load, so the server does not need restarting):
 
 ```console
-$ dbtx run -s stg_customers stg_orders --project-dir examples/jaffle_shop --profiles-dir examples/jaffle_shop
-$ dbtx docs patch --docs-loc examples/jaffle_shop/target --run-loc examples/jaffle_shop/target
-dbtx docs: patched 2
-  carried forward 0 node(s) from previous runs
-  history limit 3, wrote examples/jaffle_shop/target/dbtx_runtime.json
+$ dbtx run -s stg_customers stg_orders --platform-dir ..
+...
+dbtx docs: patched the docs site .../examples/jaffle_shop/target with this run
 
-$ dbtx run -s customers orders --project-dir examples/jaffle_shop --profiles-dir examples/jaffle_shop
-$ dbtx docs patch --docs-loc examples/jaffle_shop/target --run-loc examples/jaffle_shop/target
-dbtx docs: patched 2
-  carried forward 2 node(s) from previous runs    # the staging pair kept its data
+$ dbtx run -s customers orders --platform-dir .. --job-id customers-1
+...
+dbtx docs: patched the docs site .../examples/jaffle_shop/target with this run
+```
 
-$ dbtx run -s customers --project-dir examples/jaffle_shop --profiles-dir examples/jaffle_shop
-$ dbtx docs patch --docs-loc examples/jaffle_shop/target --run-loc examples/jaffle_shop/target
+Each run's own artifacts and log stay in its folder under
+`examples/.dbtx/logs/jaffle_shop/<date>/<hour>/<job id>/`.
+
+**Standalone mode** runs the same loop by hand: every command takes `--standalone-mode`,
+runs write to the project's `target/`, and you patch the docs yourself:
+
+```console
+$ cd examples/jaffle_shop
+$ dbtx docs generate --standalone-mode
+$ dbtx docs install --docs-loc target --standalone-mode
+$ dbtx run -s customers --standalone-mode
+$ dbtx docs patch --docs-loc target --run-loc target --standalone-mode
 dbtx docs: patched 1
-  carried forward 4 node(s) from previous runs    # customers now has 2 runs of history
-
-$ dbtx docs status --docs-loc examples/jaffle_shop/target
-dbtx docs: examples/jaffle_shop/target
-  4 of 42 node(s) have run data
-  history limit 3
-  last patched 2026-10-06T20:12:29.939901Z
-  overlay installed
 ```
 
-Four nodes accumulated from three partial runs, with `customers` carrying two:
+Things to know when working through this:
 
-```console
-customers        runs=2  ['success', 'success']
-orders           runs=1  ['success']
-stg_customers    runs=1  ['success']
-stg_orders       runs=1  ['success']
-```
-
-Three things to know when working through this:
-
-- Patch **after** a targeted `dbtx run`, not straight after `dbtx docs generate`. `generate`
-  writes its own `run_results.json` covering every node, so patching there records all 41
-  at once and there is no partial accumulation left to see.
-- Re-running `dbtx docs generate` rewrites `index.html` and drops the overlay tag. The next
-  `dbtx docs patch` puts it back, and the sidecar is never touched, so no history is lost.
-- Because dbt resolves the DuckDB path in `profiles.yml` relative to the directory it runs
-  from, running from the repo root creates `jaffle_shop.duckdb` **at the repo root** rather
-  than inside the project. `.gitignore` only covers `examples/*/*.duckdb`, so that copy
-  shows up as untracked.
+- In standalone mode, patch **after** a targeted `dbtx run`, not straight after
+  `dbtx docs generate`: `generate` writes its own `run_results.json` covering every
+  node, so patching there records all of them at once.
+- Re-running `dbtx docs generate` replaces `index.html` without the overlay. `dbtx docs
+  install` (or the next patch) puts it back; the sidecar is never touched, so no history
+  is lost.
+- dbt resolves the DuckDB path in `profiles.yml` relative to the directory it runs from,
+  which is why the example runs from the project folder.
 
 ## Development
 
@@ -685,8 +744,11 @@ cd examples/jaffle_shop && uv run dbtx build --standalone-mode   # or without th
 `examples/jaffle_shop/jaffle_shop.duckdb`, outside `target/` so `dbt clean` keeps it). It has 5 seeds (1,000 customers,
 8,000 orders, ~18,000 items over two years, 6 stores), staging views, an ephemeral
 intermediate model, 5 marts, 26 data tests (including a warn-severity one that is expected
-to warn), 6 dbtx reports and one plain exposure that dbtx ignores. The reports cover every
-template source and style of extension:
+to warn), 6 dbtx reports and one plain exposure that dbtx ignores. So that every command
+dbtx records has something to run, it also has a source with a freshness rule (the
+`raw_orders` seed; always stale, so `dbtx source freshness` warns), a snapshot of the
+stores (`dbtx snapshot`) and a macro (`dbtx run-operation log_store_count`). The reports
+cover every template source and style of extension:
 
 | Report | Template | Source |
 |---|---|---|
@@ -706,9 +768,14 @@ python scripts/generate_seeds.py
 ### Tests
 
 ```console
-pytest -m "not live"          # ~1s:  unit tests against the frozen manifest
-pytest                        # ~80s: also builds the example project in temp copies
+pytest -m "not live"          # ~1 min: unit tests (Postgres ones start a throwaway server)
+pytest                        # ~2 min: also real dbt runs of the example project
+ci/run.sh                     # the whole CI run, as GitHub runs it (into /mnt/cicd)
 ```
+
+CI (GitHub Actions, Python 3.10 and 3.14) runs `ci/run.sh`: lint (ruff), unit and live
+tests, and a build of the wheel that is installed and run. The same scripts run locally;
+see [docs/contributing/ci.md](docs/contributing/ci.md).
 
 - **Unit tests** (`tests/unit`) load `tests/fixtures/manifest.json`, a frozen, scrubbed
   `dbt parse` of the example project, as a real dbt `Manifest`. No warehouse and no parse

@@ -50,3 +50,8 @@ markers = [
     "server: boots a real uvicorn server on a loopback socket",
     "postgres: needs a Postgres server (a throwaway pgserver, started once per test session)",
 ]
+
+[tool.ruff.lint]
+# pyflakes' checks (CI: ci/build.sh, step lint). isort's ("I") can follow once the
+# imports are sorted repo-wide.
+select = ["F"]
