@@ -7,15 +7,18 @@ for tests (docs/contributing/guidelines.md, "Test fixtures").
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import shutil
 from collections.abc import Callable
+from datetime import datetime, timezone
 from importlib.metadata import EntryPoint
 from pathlib import Path
 
 import pytest
 
-from dbtx import cli
+from dbtx import cli, config
 from dbtx.store import adapters
 
 CONFIG_SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "config"
@@ -55,6 +58,19 @@ def adapter_plugins(monkeypatch: pytest.MonkeyPatch) -> Callable[[dict[str, str]
 
     monkeypatch.setattr(adapters, "_entry_points", lambda: list(installed))
     return install
+
+
+# A run's start time and job id when a test uses `fixed_run`: the run folder is then
+# <log root>/<project>/2026-10-12/14/<RUN_JOB_ID>.
+RUN_STARTED = datetime(2026, 10, 12, 14, 37, 5, tzinfo=timezone.utc)
+RUN_JOB_ID = "11111111-2222-4333-8444-555555555555"
+
+
+@pytest.fixture
+def fixed_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs start at RUN_STARTED and, without --job-id, get RUN_JOB_ID."""
+    monkeypatch.setattr(config, "run_started_at", lambda: RUN_STARTED)
+    monkeypatch.setattr(config, "new_job_id", lambda: RUN_JOB_ID)
 
 
 # --------------------------------------------------------------------------------------
@@ -128,6 +144,26 @@ def platform(layout: LayoutBuilder) -> Path:
     return root
 
 
+def initialise_database(root: Path) -> None:
+    """`dbtx db init` on the platform at `root`, as a user does once before the first
+    run: only `dbtx db init` / `upgrade` change the schema. Its output is discarded."""
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main(["db", "init"])
+    finally:
+        os.chdir(previous)
+    assert code == 0, "dbtx db init failed"
+
+
+@pytest.fixture
+def initialised_platform(platform: Path) -> Path:
+    """`platform`, with its database initialised (`dbtx db init`)."""
+    initialise_database(platform)
+    return platform
+
+
 @pytest.fixture
 def lone_project(layout: LayoutBuilder) -> Path:
     """A dbt project that is not under any platform root."""
@@ -146,20 +182,25 @@ class FakeResult:
 
 
 class FakeDbtRunner:
-    """Stands in for dbtRunner in dbtx.cli and records every invoke."""
+    """Stands in for dbtRunner in dbtx.cli and records every invoke, with the job id dbt
+    would see in its environment (DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID, None when unset)."""
 
     calls: list[list[str]] = []
+    job_ids: list[str | None] = []
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         pass
 
     def invoke(self, args: list[str]) -> FakeResult:
         FakeDbtRunner.calls.append(list(args))
+        FakeDbtRunner.job_ids.append(os.environ.get("DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID"))
         return FakeResult()
 
 
 @pytest.fixture
 def fake_dbt(monkeypatch: pytest.MonkeyPatch) -> type[FakeDbtRunner]:
     FakeDbtRunner.calls = []
+    FakeDbtRunner.job_ids = []
+    monkeypatch.delenv("DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID", raising=False)
     monkeypatch.setattr(cli, "dbtRunner", FakeDbtRunner)
     return FakeDbtRunner

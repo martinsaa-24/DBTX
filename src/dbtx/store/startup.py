@@ -6,10 +6,10 @@ enabled, a command that uses the database, DB_URI set.
 Checks, in order, each a StoreError (exit 2) on failure:
 1. connect
 2. the server version floor (`adapter.check_server`)
-3. the migration revision against head (plan Phase 3): unknown → StoreError; none or
-   behind → upgraded when the adapter `upgrades_automatically` (SQLite), else a
-   StoreError naming `dbtx db init` / `upgrade`. Those two commands skip this check:
-   fixing the revision is their job
+3. the migration revision against head (plan Phase 3): unknown, none or behind → a
+   StoreError (none: `run dbtx db init`; behind: `run dbtx db upgrade`). Schema changes
+   are deliberate: only those two commands make them, on every backend, and they skip
+   this check because fixing the revision is their job
 4. for a command with a project: guards G1 + G2 in one transaction. A name another
    folder on this platform also declares (G1) runs only from the folder that holds the
    claim ("established owner wins"); otherwise the folder claims the name or confirms
@@ -66,10 +66,22 @@ def run_startup_checks(config: DbtxConfig) -> list[str]:
 def check_database(store: Store, command: str) -> list[str]:
     """Steps 1-3: connect, the server version floor, the migration revision.
 
-    A database with no revision, or behind head, is upgraded when the adapter
-    `upgrades_automatically` (SQLite); otherwise it is a StoreError naming the command
-    that fixes it. Returns warnings to print (an upgrade made).
+    A missing database file (SQLite), a database with no revision, or one behind head is
+    a StoreError naming the command that fixes it (`dbtx db init` / `dbtx db upgrade`):
+    nothing here creates or changes the database.
+    Returns warnings to print (none at present; callers print what it returns).
     """
+    # A database that is a file (SQLite) must exist already: connecting would create an
+    # empty one. Only `dbtx db init` / `upgrade` create it. In-memory SQLite and servers
+    # have no file (`database_file` is None) and are checked over their connection.
+    if command not in COMMANDS_THAT_CREATE_THE_TABLES:
+        database_file = store.adapter.database_file(store.uri)
+        if database_file is not None and not database_file.exists():
+            raise StoreError(
+                f"the database file {database_file} does not exist; run `dbtx db init` to "
+                f"create it"
+            )
+
     try:
         connection = store.engine.connect()
     except sa.exc.SQLAlchemyError as exc:
@@ -82,28 +94,19 @@ def check_database(store: Store, command: str) -> list[str]:
         if command in COMMANDS_THAT_CREATE_THE_TABLES:
             return []
         status = migrate.revision_status(connection, store.schema)
-    # The connection is closed before upgrading: on SQLite its transaction would hold
-    # the write lock the upgrade needs.
 
     if status.state == migrate.CURRENT:
         return []
     if status.state == migrate.UNKNOWN:
         raise StoreError(migrate.unknown_revision_message(store, status))
-
-    if not store.adapter.upgrades_automatically:
-        if status.state == migrate.UNINITIALISED:
-            raise StoreError(
-                f"the database {store.masked_uri()} has no dbtx tables; run `dbtx db init`"
-            )
+    if status.state == migrate.UNINITIALISED:
         raise StoreError(
-            f"the database {store.masked_uri()} is at revision {status.current}, behind "
-            f"this dbtx's {status.head}; run `dbtx db upgrade`"
+            f"the database {store.masked_uri()} has no dbtx tables; run `dbtx db init`"
         )
-
-    before, after = migrate.upgrade(store)
-    if before is None:
-        return [f"created dbtx's tables in {store.masked_uri()} (revision {after})"]
-    return [f"upgraded {store.masked_uri()} from revision {before} to {after}"]
+    raise StoreError(
+        f"the database {store.masked_uri()} is at revision {status.current}, behind "
+        f"this dbtx's {status.head}; run `dbtx db upgrade`"
+    )
 
 
 def check_project_claim(store: Store, config: DbtxConfig) -> list[str]:

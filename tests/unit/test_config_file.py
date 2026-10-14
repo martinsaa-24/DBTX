@@ -31,10 +31,11 @@ def test_valid_full_sample() -> None:
 @pytest.mark.parametrize(
     "sample, value",
     [
-        ("platform_sqlite.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 1)}),
-        ("platform_postgres.conf", {"DB_URI": ("postgresql+psycopg://dbtx:s3cret@db/dbtx", 1)}),
+        ("platform_sqlite.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 1), "LOG_ROOT_LOCATION": (".dbtx/logs", 2)}),
+        ("platform_without_log_root.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 3)}),
+        ("platform_postgres.conf", {"DB_URI": ("postgresql+psycopg://dbtx:s3cret@db/dbtx", 1), "LOG_ROOT_LOCATION": (".dbtx/logs", 2)}),
         ("backend_without_uri.conf", {"DB_BACKEND": ("enabled", 2)}),
-        ("backend_disabled.conf", {"DB_BACKEND": ("disabled", 1)}),
+        ("backend_disabled.conf", {"DB_BACKEND": ("disabled", 1), "LOG_ROOT_LOCATION": (".dbtx/logs", 2)}),
         # The parser does not judge values; DB_BACKEND is validated later.
         ("bad_backend_value.conf", {"DB_BACKEND": ("sometimes", 1)}),
         (
@@ -42,13 +43,14 @@ def test_valid_full_sample() -> None:
             {
                 "DB_URI": ("postgresql+psycopg://dbtx@db/dbtx", 1),
                 "DB_SCHEMA": ("analytics_dbtx", 2),
+                "LOG_ROOT_LOCATION": (".dbtx/logs", 3),
             },
         ),
         # Nor whether DB_SCHEMA suits the URI.
-        ("sqlite_with_schema.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 2), "DB_SCHEMA": ("dbtx", 3)}),
+        ("sqlite_with_schema.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 2), "DB_SCHEMA": ("dbtx", 3), "LOG_ROOT_LOCATION": (".dbtx/logs", 4)}),
         ("bad_schema_value.conf", {"DB_URI": ("postgresql+psycopg://dbtx@db/dbtx", 1), "DB_SCHEMA": ("Analytics-DBTX", 2)}),
         # Nor whether DB_ADAPTER names an installed adapter.
-        ("platform_sqlite_adapter.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 1), "DB_ADAPTER": ("custom_sqlite", 2)}),
+        ("platform_sqlite_adapter.conf", {"DB_URI": ("sqlite:///.dbtx/dbtx.db", 1), "DB_ADAPTER": ("custom_sqlite", 2), "LOG_ROOT_LOCATION": (".dbtx/logs", 3)}),
     ],
 )
 def test_valid_samples(sample: str, value: dict[str, tuple[str, int]]) -> None:
@@ -57,16 +59,17 @@ def test_valid_samples(sample: str, value: dict[str, tuple[str, int]]) -> None:
 
 def test_shipped_example_template_is_valid() -> None:
     entries = config.parse_config_file(EXAMPLE_TEMPLATE)
-    assert sorted(entries) == ["DB_BACKEND", "DB_URI"]
+    assert sorted(entries) == ["DB_BACKEND", "DB_URI", "LOG_ROOT_LOCATION"]
     assert entries["DB_BACKEND"][0] == "enabled"
     assert entries["DB_URI"][0] == "sqlite:///.dbtx/dbtx.db"
+    assert entries["LOG_ROOT_LOCATION"][0] == ".dbtx/logs"
 
 
 
 @pytest.mark.parametrize(
     "sample, error",
     [
-        ("invalid_unknown_key.conf", r"invalid_unknown_key.conf:1: unknown key 'DB_URL'; known keys: DB_BACKEND, DB_URI, DB_SCHEMA, DB_ADAPTER$"),
+        ("invalid_unknown_key.conf", r"invalid_unknown_key.conf:1: unknown key 'DB_URL'; known keys: DB_BACKEND, DB_URI, DB_SCHEMA, DB_ADAPTER, LOG_ROOT_LOCATION$"),
         ("invalid_duplicate_key.conf", r"invalid_duplicate_key.conf:2: DB_URI is already set on line 1"),
         ("invalid_export.conf", r"invalid_export.conf:1: `export` is not supported"),
         ("invalid_interpolation.conf", r"invalid_interpolation.conf:1: .* interpolation is not supported"),

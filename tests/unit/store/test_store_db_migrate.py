@@ -7,7 +7,7 @@ Behaviour:
   (`created schema '<name>'`); one that cannot be created (no privilege) → exit 2
   naming the schema and the way out. Nothing else is done then
 * then migrates to head, printing what changed: `created dbtx's tables in <uri>
-  (revision 0001)`, `upgraded <uri> from revision X to Y`, or `<uri> is already at
+  (revision 0002)`, `upgraded <uri> from revision X to Y`, or `<uri> is already at
   revision X (head)`. Exit 0
 * a revision this dbtx does not know (migrated by a newer dbtx) → exit 2, unchanged
 
@@ -92,7 +92,7 @@ def test_init_creates_the_tables(
     monkeypatch.chdir(platform)
     assert cli.main(["db", "init", *db_flags(empty_store)]) == 0
     assert capsys.readouterr().out == (
-        f"created dbtx's tables in {empty_store.masked_uri()} (revision 0001)\n"
+        f"created dbtx's tables in {empty_store.masked_uri()} (revision 0002)\n"
     )
     assert revision(empty_store).state == "current"
 
@@ -106,7 +106,7 @@ def test_init_again_changes_nothing(
 ) -> None:
     monkeypatch.chdir(platform)
     assert cli.main(["db", "init", *db_flags(store)]) == 0
-    assert capsys.readouterr().out == f"{store.masked_uri()} is already at revision 0001 (head)\n"
+    assert capsys.readouterr().out == f"{store.masked_uri()} is already at revision 0002 (head)\n"
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
@@ -117,11 +117,11 @@ def test_init_upgrades_a_store_behind_head(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    set_revision(store, "0001")
+    set_revision(store, "0002")
     monkeypatch.chdir(platform)
     assert cli.main(["db", "init", *db_flags(store)]) == 0
-    assert capsys.readouterr().out == f"upgraded {store.masked_uri()} from revision 0001 to 0002\n"
-    assert revision(store).current == "0002"
+    assert capsys.readouterr().out == f"upgraded {store.masked_uri()} from revision 0002 to 0003\n"
+    assert revision(store).current == "0003"
 
 
 @pytest.mark.postgres
@@ -137,7 +137,7 @@ def test_init_creates_a_missing_postgres_schema(
     assert cli.main(["db", "init", *flags]) == 0
     assert capsys.readouterr().out == (
         f"created schema '{missing_schema}'\n"
-        f"created dbtx's tables in {masked(postgres_uri)} (revision 0001)\n"
+        f"created dbtx's tables in {masked(postgres_uri)} (revision 0002)\n"
     )
     assert "alembic_version" in schema_tables(postgres_uri, missing_schema)
     assert "project" in schema_tables(postgres_uri, missing_schema)
@@ -191,7 +191,7 @@ def test_init_refuses_a_revision_this_dbtx_does_not_know(
     assert cli.main(["db", "init", *db_flags(store)]) == 2
     assert (
         f"dbtx: the database {store.masked_uri()} is at revision 'ffff', which this dbtx "
-        f"does not know (head is '0001'); it was migrated by a newer dbtx"
+        f"does not know (head is '0002'); it was migrated by a newer dbtx"
     ) in capsys.readouterr().err
     assert revision(store).current == "ffff"
 
@@ -219,11 +219,11 @@ def test_upgrade_reaches_head_from_behind(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    set_revision(store, "0001")
+    set_revision(store, "0002")
     monkeypatch.chdir(platform)
     assert cli.main(["db", "upgrade", *db_flags(store)]) == 0
-    assert capsys.readouterr().out == f"upgraded {store.masked_uri()} from revision 0001 to 0002\n"
-    assert revision(store).current == "0002"
+    assert capsys.readouterr().out == f"upgraded {store.masked_uri()} from revision 0002 to 0003\n"
+    assert revision(store).current == "0003"
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
@@ -235,7 +235,7 @@ def test_upgrade_at_head_changes_nothing(
 ) -> None:
     monkeypatch.chdir(platform)
     assert cli.main(["db", "upgrade", *db_flags(store)]) == 0
-    assert capsys.readouterr().out == f"{store.masked_uri()} is already at revision 0001 (head)\n"
+    assert capsys.readouterr().out == f"{store.masked_uri()} is already at revision 0002 (head)\n"
 
 
 @pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
@@ -248,7 +248,7 @@ def test_upgrade_creates_the_tables_of_an_empty_database(
     monkeypatch.chdir(platform)
     assert cli.main(["db", "upgrade", *db_flags(empty_store)]) == 0
     assert capsys.readouterr().out == (
-        f"created dbtx's tables in {empty_store.masked_uri()} (revision 0001)\n"
+        f"created dbtx's tables in {empty_store.masked_uri()} (revision 0002)\n"
     )
     assert revision(empty_store).state == "current"
 

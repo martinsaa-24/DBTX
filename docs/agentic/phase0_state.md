@@ -4,8 +4,7 @@ Tracks progress against [orm_implementation_plan.md](orm_implementation_plan.md)
 section 6 and "Phase 0". If a session is interrupted, resume from the first unchecked
 item. Update this file after every step.
 
-**Branch:** `feature/db-backend`. Nothing committed for Phase 0 (the user has not asked
-for a commit). `docs/` is still untracked.
+**Branch:** `feature/db-backend`. Phase 0 is committed in `725da35`.
 
 **Style rule from the user:** simple, verbose code. Repetition is fine where it avoids
 abstraction, as long as it does not risk regressions.
@@ -36,7 +35,7 @@ abstraction, as long as it does not risk regressions.
 - [x] 9. README "Configuration" section (under Usage), `examples/dbtx.conf.example` (parses with the real parser), `postgres` extra in Requirements
 - [x] 10. Plan updated: Phase 0 "Status" block lists the deviations
 
-**Phase 0 complete.** Not committed: the user has not asked for a commit.
+**Phase 0 complete.** Committed in `725da35`.
 Files touched: `pyproject.toml`, `uv.lock`, `src/dbtx/config.py` (new), `src/dbtx/cli.py`, `src/dbtx/runner.py`, `tests/unit/test_config.py` (new), `tests/unit/test_cli_config.py` (new), `README.md`, `examples/dbtx.conf.example` (new), `docs/agentic/*`.
 
 ## Decisions made during implementation
@@ -81,4 +80,4 @@ layout-dependent tests build a clean tmp directory structure per test.
 - [x] Independence check on the 150 new tests: reversed, shuffled (seeds 1-3), each file alone, and **each test alone** (150 separate runs): all pass
 - [x] Full suite green: **339 passed** (189 existing + 150 new), integration and server tests included
 
-**Test rework complete.** Not committed.
+**Test rework complete.** Committed in `725da35`.

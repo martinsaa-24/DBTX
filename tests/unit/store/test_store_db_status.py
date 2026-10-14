@@ -9,7 +9,7 @@ command class, so a disabled backend or a missing DB_URI is reported, not an err
 * a local database file that does not exist yet (SQLite) → says so; nothing is created
   (not the file, not its directory)
 * `server`: the server's name and version
-* `revision`: "0001 (head)"; "none; run `dbtx db init`"; "0001; head is 0002, run
+* `revision`: "0002 (head)"; "none; run `dbtx db init`"; "0002; head is 0003, run
   `dbtx db upgrade`"; or a revision this dbtx does not know
 * `tables`: the row count of every table, in dependency order, when at head
 * an unreachable server → exit 2 with the reason
@@ -102,7 +102,7 @@ def test_status_of_a_current_store(
     assert rest == [
         adapter_line(store),
         server_line(store),
-        "  revision    0001 (head)",
+        "  revision    0002 (head)",
         "  tables      project 1, job 0, node 0, invocation 0, node_edge 0, node_version 0, "
         "report 0, node_result 0, report_render 0",
     ]
@@ -135,11 +135,11 @@ def test_status_of_a_store_behind_head(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    set_revision(store, "0001")
+    set_revision(store, "0002")
     monkeypatch.chdir(platform)
     assert cli.main(["db", "status", *db_flags(store)]) == 0
     lines = status_lines(capsys)
-    assert lines[-1] == "  revision    0001; head is 0002, run `dbtx db upgrade`"
+    assert lines[-1] == "  revision    0002; head is 0003, run `dbtx db upgrade`"
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
@@ -154,7 +154,7 @@ def test_status_of_a_revision_this_dbtx_does_not_know(
     assert cli.main(["db", "status", *db_flags(store)]) == 0
     lines = status_lines(capsys)
     assert lines[-1] == (
-        "  revision    'ffff', which this dbtx does not know (head is '0001'); it was "
+        "  revision    'ffff', which this dbtx does not know (head is '0002'); it was "
         "migrated by a newer dbtx"
     )
 

@@ -194,8 +194,17 @@ def test_result_from_statuses(statuses: list[str], result: str) -> None:
 
 def test_load_stores_a_row_per_result(project_store: Store, run_results: dict) -> None:
     start(project_store, invocation_from_run_results(run_results))
-    assert load(project_store, run_result_rows(run_results, "jaffle_shop", {})) == (48, 0)
-    assert len(node_results(project_store)) == 48
+    assert load(project_store, run_result_rows(run_results, "jaffle_shop", {})) == (49, 0)
+    assert len(node_results(project_store)) == 49
+
+
+def test_load_stores_the_compiled_sql_and_relation(project_store: Store, run_results: dict) -> None:
+    start(project_store, invocation_from_run_results(run_results))
+    load(project_store, run_result_rows(run_results, "jaffle_shop", {}))
+    with project_store.session() as session:
+        row = session.get(m.NodeResult, (RUN_ID, "jaffle_shop", "model.jaffle_shop.customers"))
+    assert row.compiled_code.startswith("with order_stats as (")
+    assert row.relation_name == '"jaffle_shop"."main"."customers"'
 
 
 def test_results_without_a_stored_node_are_skipped(
@@ -206,7 +215,7 @@ def test_results_without_a_stored_node_are_skipped(
     hook = dict(run_results["results"][0], unique_id="operation.jaffle_shop.jaffle_shop-on-run-end-0")
     analysis = dict(run_results["results"][0], unique_id="analysis.jaffle_shop.revenue_check")
     run_results["results"] += [hook, analysis]
-    assert load(project_store, run_result_rows(run_results, "jaffle_shop", {})) == (48, 2)
+    assert load(project_store, run_result_rows(run_results, "jaffle_shop", {})) == (49, 2)
     assert "node results: skipped 2 without a stored node in jaffle_shop" in caplog.text
 
 
@@ -215,7 +224,7 @@ def test_loading_the_same_results_again_changes_nothing(project_store: Store, ru
     rows = run_result_rows(run_results, "jaffle_shop", {})
     load(project_store, rows)
     before = node_results(project_store)
-    assert load(project_store, rows) == (48, 0)
+    assert load(project_store, rows) == (49, 0)
     assert node_results(project_store) == before
 
 
@@ -234,21 +243,15 @@ def test_an_unknown_status_is_stored_with_a_warning_otherwise(
     monkeypatch.setattr(validation, "_warned", set())
     start(project_store, invocation_from_run_results(run_results))
     run_results["results"][0]["status"] = "exploded"
-    assert load(project_store, run_result_rows(run_results, "jaffle_shop", {})) == (48, 0)
+    assert load(project_store, run_result_rows(run_results, "jaffle_shop", {})) == (49, 0)
     assert "storing unknown value 'exploded'" in caplog.text
 
 
 def test_freshness_results_for_stored_sources(project_store: Store) -> None:
+    # The example's source is in the frozen manifest, so its result is stored.
     sources = json.loads(FROZEN_SOURCES.read_text(encoding="utf-8"))
-    with project_store.begin() as session:
-        for name in ("raw_orders", "raw_customers"):
-            session.add(
-                m.Node(
-                    project="jaffle_shop", unique_id=f"source.jaffle_shop.ecom.{name}", resource_type="source",
-                    package_name="jaffle_shop", name=name, checksum=None, first_seen_at=SEEN_AT, last_seen_at=SEEN_AT,
-                )
-            )
     start(project_store, invocation_from_sources(sources))
-    assert load(project_store, freshness_result_rows(sources, "jaffle_shop")) == (2, 0)
-    statuses = sorted(row[3] for row in node_results(project_store))
-    assert statuses == ["pass", "runtime error"]
+    assert load(project_store, freshness_result_rows(sources, "jaffle_shop")) == (1, 0)
+    assert [(row[2], row[3]) for row in node_results(project_store)] == [
+        ("source.jaffle_shop.jaffle_raw.raw_orders", "warn")
+    ]

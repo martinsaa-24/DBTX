@@ -14,7 +14,8 @@ Lifecycle, driven by dbt's events (`on_event`, a dbtRunner callback):
 * `MainReportVersion` → the invocation starts, in one transaction: its id from the
   event; its start time from dbt; command, project, dbt version, args (dbt's flags,
   secrets scrubbed), selector, job id (an unknown one becomes an `external` job),
-  `run_by`, `host`; no end time or result yet. With a manifest (`use_manifest`, given
+  `run_by`, `host`; no end time or result yet. A platform run's job id and run folder
+  come from the configuration (dbtx chose them), never from the args. With a manifest (`use_manifest`, given
   by `build` / `compile` before dbt runs): the manifest sync, the report sync and a
   `pending` render row for each report this run renders, so the render rows' foreign
   keys hold
@@ -326,6 +327,22 @@ def test_a_job_id_var_records_an_external_job(claimed: Store, dbt: FakeDbt, tmp_
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
+def test_platform_runs_take_the_job_id_and_run_folder_from_the_config(
+    claimed: Store, dbt: FakeDbt, tmp_path: Path
+) -> None:
+    # dbtx chose the job id (and handed it to dbt); a legacy job_id var does not change it.
+    dbt.args = {"which": "build", "vars": {"job_id": "legacy"}}
+    folder = tmp_path / "runs" / "jaffle_shop" / "2026-10-12" / "14" / "nightly-42"
+    config = replace(recorded_config(claimed, tmp_path), job_id="nightly-42", run_folder=folder)
+    rec = Recorder.for_invocation(config)
+    assert isinstance(rec, Recorder)
+    run_dbt(rec)
+    rec.finish(dbt_result())
+    row = invocation(claimed)
+    assert (row.job_id, row.run_folder) == ("nightly-42", str(folder))
+
+
+@pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
 def test_a_manifest_is_synced_at_the_start(
     claimed: Store, dbt: FakeDbt, tmp_path: Path, frozen_manifest: Manifest, reports: dict[str, Report]
 ) -> None:
@@ -334,7 +351,7 @@ def test_a_manifest_is_synced_at_the_start(
     rec.use_manifest(frozen_manifest, by_id, {TOP_CUSTOMERS: by_id[TOP_CUSTOMERS]})
     assert count(claimed, m.Node) == 0  # nothing is written before dbt starts
     rec.on_event(event("MainReportVersion"))
-    assert (count(claimed, m.Node), count(claimed, m.NodeEdge), count(claimed, m.Report)) == (49, 53, 6)
+    assert (count(claimed, m.Node), count(claimed, m.NodeEdge), count(claimed, m.Report)) == (51, 54, 6)
     assert invocation(claimed).adapter_type == "duckdb"  # from the manifest
     pending = render(claimed)
     assert (pending.status, pending.started_at, pending.completed_at, pending.paths) == ("pending", None, None, None)
@@ -375,7 +392,7 @@ def test_a_build_is_recorded_with_its_node_results(
     assert (row.end_time, row.result, row.error_message) == (CLOCK_START.replace(minute=5), "warning", None)
     assert (row.target, row.adapter_type) == ("dev", "duckdb")
     assert row.args == {"which": "build", "select": ["customers"], "vars": {}, "warn_error_options": {}}
-    assert count(claimed, m.NodeResult) == 48
+    assert count(claimed, m.NodeResult) == 49
     with claimed.session() as session:
         result = session.get(m.NodeResult, (RUN_ID, PROJECT, "model.jaffle_shop.customers"))
     assert (result.status, result.checksum) == ("success", frozen_manifest.nodes["model.jaffle_shop.customers"].checksum.checksum)
@@ -526,7 +543,7 @@ def test_a_pass_through_syncs_the_manifest_it_wrote(claimed: Store, dbt: FakeDbt
     path = write_manifest_json(dbt.target_path, RUN_ID)
     announce_manifest(rec, path)
     rec.finish(dbt_result(result=object()))
-    assert (count(claimed, m.Node), count(claimed, m.NodeResult)) == (49, 48)
+    assert (count(claimed, m.Node), count(claimed, m.NodeResult)) == (51, 49)
     assert count(claimed, m.Report) == 0  # reports are synced by dbtx's own build / compile
     assert invocation(claimed).manifest_hash == hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -551,7 +568,7 @@ def test_a_parse_syncs_the_manifest_it_returned(
     rec = new_recorder(claimed, tmp_path, command="parse")
     run_dbt(rec, target=None)
     rec.finish(dbt_result(result=frozen_manifest))
-    assert count(claimed, m.Node) == 49
+    assert count(claimed, m.Node) == 51
     assert invocation(claimed).adapter_type == "duckdb"
 
 

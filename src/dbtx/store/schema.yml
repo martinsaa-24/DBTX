@@ -1,4 +1,4 @@
-version: 2
+version: 3
 
 # Field types
 #   string     text
@@ -21,6 +21,11 @@ version: 2
 #   platform.project  new: registry binding each dbt project name to one project folder
 #   job.project       new, nullable, FK -> project
 #   invocation, node  FK (project) -> project(project)
+#
+# Changes in version 3
+#   invocation.run_folder         new, nullable: the run's isolated folder (platform mode)
+#   node_result.compiled_code     new, nullable: the node's compiled SQL, as dbt ran it
+#   node_result.relation_name     new, nullable: the relation the node built or tested
 
 entities:
   platform:
@@ -149,6 +154,9 @@ entities:
           nullable: true
         - field_name: error_message      # command-level failure, no node results
           field_type: string
+          nullable: true
+        - field_name: run_folder         # the run's folder under LOG_ROOT_LOCATION; null for
+          field_type: string             # runs loaded with `dbtx db load`
           nullable: true
 
   dbt_nodes:
@@ -283,6 +291,12 @@ entities:
           nullable: true
         - field_name: adapter_response
           field_type: json
+          nullable: true
+        - field_name: compiled_code      # the compiled SQL dbt ran (models: the SELECT, without
+          field_type: string             # dbt's DDL wrapper); null when the node has none (seeds)
+          nullable: true
+        - field_name: relation_name      # the relation the node built or tested, as dbt quotes it
+          field_type: string
           nullable: true
 
   dbtx_actions:

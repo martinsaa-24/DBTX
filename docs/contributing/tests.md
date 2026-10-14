@@ -64,6 +64,8 @@ Unit tests mirror `src/dbtx/`. The default is **one test file per source module*
 | `dbtx/docs/server.py` | `test_docs_server.py` |
 | `dbtx/docs/sidecar.py` (with `catalog.py`, `patch.py`) | `test_docs_sidecar.py` |
 | `dbtx/docs/exposure_reports.py` | `test_docs_exposure_reports.py` |
+| `dbtx/runs.py`: the run folder at run time (created after the checks, warm cache, the job id for dbt) | `test_runs.py`; the docs site after a run: `test_docs_site.py` |
+| `dbtx warm-cache` (`cli.py`) | `test_warm_cache.py` |
 
 A module in a subpackage gets the package name as a prefix (`dbtx/docs/server.py` →
 `test_docs_server.py`), so the unit folder stays flat.
@@ -77,6 +79,7 @@ the TDD cycle works on. `dbtx/config.py` is the example:
 | the `dbtx.conf` parser | `test_config_file.py` |
 | `load_config`: modes, layers, validation, guard G1 | `test_config.py` |
 | how `cli.main` uses the config (checked first, argv handed to dbt, `dbtx config`, `dbtx db`) | `test_cli_config.py` |
+| `LOG_ROOT_LOCATION`, the job id and the run folder's path (`load_config`) | `test_config_run_folder.py` |
 
 Name the file `test_<module>_<group>.py` (or `test_<group>.py` when the group name is
 already specific, like `test_config_file.py`). Start each file with a docstring that
@@ -106,7 +109,7 @@ module:
 | `test_compile.py` | `dbtx compile`: validation and report SQL |
 | `test_docs_server_boot.py` | the docs server under real uvicorn (also marked `server`) |
 | `test_frozen_manifest.py` | `tests/fixtures/manifest.json` and `run_results.json` still match the example project |
-| `test_store_recording.py` | the run history store: real runs on a throwaway platform, checked against dbt's own artifacts (plan Phase 5) |
+| `test_store_recording.py` | the run history store and isolated runs: real runs on a throwaway platform, checked against dbt's own artifacts in each run's folder; the warm cache, job ids and the docs site (plan Phases 5 and 6) |
 
 Every test under `tests/live/` is marked `live` automatically by
 `tests/live/conftest.py`, so `pytest -m "not live"` skips the slow tier.
@@ -114,7 +117,8 @@ Every test under `tests/live/` is marked `live` automatically by
 `Project.dbtx(...)` runs in **standalone mode** (`--standalone-mode`): a project folder
 is not a platform, and standalone runs never touch a database. `test_store_recording.py`
 has its own `platform` fixture: the built project as `jaffle-shop` under a tmp platform
-root whose `dbtx.conf` sets `DB_URI=sqlite:///.dbtx/dbtx.db`, run from the project
+root whose `dbtx.conf` sets `DB_URI=sqlite:///.dbtx/dbtx.db` and
+`LOG_ROOT_LOCATION=.dbtx/logs`, run from the project
 folder with `--platform-dir`.
 
 ## Where test fixtures live
@@ -125,7 +129,7 @@ higher:
 | Fixture file | Holds |
 |---|---|
 | `tests/conftest.py` | the `--postgres-uri` option (registered here so pytest accepts it whatever is selected), `manifest` (a deep copy of the frozen manifest per test, safe to mutate), `templates`, `reports` |
-| `tests/unit/conftest.py` | `clean_env` (autouse: clears `DBTX_*`, `DBT_PROJECT_DIR`, `DBT_PROFILES_DIR`), `no_adapter_plugins` (autouse: hides installed store adapter plugins), `adapter_plugins` (installs fake `dbtx.store_adapters` entry points from `tests/unit/fake_store_adapters.py`, which also holds `FakeDbDialect`, a `fakedb` SQLAlchemy dialect for compiling DDL without a database, and `CustomSqliteAdapter` / `OtherSqliteAdapter`, plugins for the built-in `sqlite` dialect that support `pysqlcipher` too, for `DB_ADAPTER` and default-adapter tests), `config_sample()`, `layout` (a `LayoutBuilder` over `tmp_path`), `platform`, `lone_project`, `fake_dbt` |
+| `tests/unit/conftest.py` | `clean_env` (autouse: clears `DBTX_*`, `DBT_PROJECT_DIR`, `DBT_PROFILES_DIR`), `no_adapter_plugins` (autouse: hides installed store adapter plugins), `adapter_plugins` (installs fake `dbtx.store_adapters` entry points from `tests/unit/fake_store_adapters.py`, which also holds `FakeDbDialect`, a `fakedb` SQLAlchemy dialect for compiling DDL without a database, and `CustomSqliteAdapter` / `OtherSqliteAdapter`, plugins for the built-in `sqlite` dialect that support `pysqlcipher` too, for `DB_ADAPTER` and default-adapter tests), `config_sample()`, `layout` (a `LayoutBuilder` over `tmp_path`), `platform` (its `dbtx.conf` sets `DB_URI` and `LOG_ROOT_LOCATION`), `lone_project`, `fake_dbt` (records each invoke's argv, and the job id dbt would see, in `job_ids`), `initialise_database(root)` / `initialised_platform` (the real `dbtx db init` on a platform, output discarded: a recorded command needs an initialised database, as for users), `fixed_run` (runs start at `RUN_STARTED`, 2026-10-12 14:37 UTC, and get `RUN_JOB_ID` without `--job-id`, so run folders are predictable) |
 | `tests/unit/store/conftest.py` | `clock` (autouse `FakeClock` replacing `dbtx.store.clock.now`), `host` (autouse: the host name a claim records is `build-01`), `spec` (the shipped `schema.yml`), `postgres_uri` (session: `--postgres-uri`, or the URI of a throwaway pgserver), `SQLITE_MEMORY_URI` / `sqlite_file_uri()`, `store` / `empty_store` (an open `Store` built by the real `open_store` from `store_config(uri, schema, adapter)`, with or without tables), `ALL_BACKENDS` and the `ON_*` backend lists (`ON_POSTGRES`, `ON_SQLITE`, `ON_SQLITE_MEMORY`, `ON_SQLITE_FILE`, `ON_SQLITE_FILE_AND_POSTGRES`), `engine` (a plain engine without adapter settings), `create_tables_at_head(store)` (what `store` does: `create_all`, then record the head revision), `extra_revision` (the migrations plus an empty `0002`, so the real head is "behind"), `missing_schema` (a Postgres schema name that does not exist yet), `limited_role_uri` (the test server as a role that cannot create schemas) |
 | `tests/live/conftest.py` | `built_project`, `project`, `fresh_duckdb_environment` (autouse: closes dbt-duckdb's per-process DuckDB environment after each test; the example's DuckDB path is relative, so otherwise every in-process test would keep using the first test's warehouse) |
 | a test file | fixtures only that file uses (for example `psycopg_missing` in `test_config.py`) |
@@ -141,12 +145,14 @@ modifies anything uses `project`, which gives it a private copy (warehouse inclu
 its own `tmp_path`. This is how live tests stay independent while sharing one
 build.
 
-`manifest.json` and `run_results.json` are frozen from the example project (the run
-results from a `dbt build` of a temporary copy, scrubbed of times, ids and paths).
-After changing `examples/jaffle_shop`, refresh both with
-`python scripts/freeze_manifest.py`; `test_frozen_manifest.py` fails while either is
-stale. `sources.json` is hand-written (the example has no source freshness): one
-`pass` and one `runtime error` entry, built with dbt's own artifact classes.
+`manifest.json`, `run_results.json` and `sources.json` are frozen from the example
+project (the run results from a `dbt build`, and the freshness results from a `dbt seed`
++ `dbt source freshness`, each of a temporary copy, scrubbed of times, ids and paths;
+the freshness check is frozen one week after the source's latest load). After changing
+`examples/jaffle_shop`, refresh all three with `python scripts/freeze_manifest.py`;
+`test_frozen_manifest.py` fails while any is stale. dbt 1.12 leaves a source whose check
+failed out of `sources.json`, so the `runtime error` shape the loader also reads is
+tested with an inline entry (`test_a_runtime_error_freshness_entry`).
 `tests/conftest.py` names them `FROZEN_MANIFEST`, `FROZEN_RUN_RESULTS` and
 `FROZEN_SOURCES`.
 
@@ -188,7 +194,7 @@ subpackage gets a folder once it has fixtures no other test uses.
 | several threads on one store: concurrent writers, concurrent claimers | `test_store_concurrency.py` |
 | server version floors (`check_server`) | `test_store_server_check.py` |
 | guard G2's registry (`store/repositories/projects.py`) | `test_store_projects.py` |
-| the start-up checks through `cli.main` (`store/startup.py`): gates, connect, revision (SQLite auto-upgrade), G1 + G2 | `test_store_startup.py` |
+| the start-up checks through `cli.main` (`store/startup.py`): gates, connect, revision (refused when uninitialised or behind, on every backend), G1 + G2 | `test_store_startup.py` |
 | `dbtx db projects` and `rebind` (`store/cli.py`) | `test_store_db_projects.py` |
 | migrations (`store/migrate.py`, `store/migrations/`): head, revision status, upgrade vs the models, downgrade | `test_store_migrations.py` |
 | `dbtx db init` and `dbtx db upgrade` (`store/cli.py`) | `test_store_db_migrate.py` |

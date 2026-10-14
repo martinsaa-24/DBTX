@@ -120,3 +120,6 @@ class NodeResult(Base):
     failures: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     rows_affected: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     adapter_response: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # The compiled SQL dbt ran and the relation it built or tested (spec v3).
+    compiled_code: Mapped[str | None] = mapped_column(sa.String(), nullable=True)
+    relation_name: Mapped[str | None] = mapped_column(sa.String(), nullable=True)

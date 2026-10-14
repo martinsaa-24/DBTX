@@ -6,6 +6,7 @@
     dbtx docs patch|install|status [options...]        overlay run data onto generated dbt docs
     dbtx docs serve --docs-loc DIR [options...]        serve the generated docs over uvicorn
     dbtx config                                        show the resolved dbtx configuration
+    dbtx warm-cache [dbt parse options...]             refresh a project's partial-parse cache
     dbtx db init | upgrade                             create or migrate dbtx's tables
     dbtx db status                                     report on the database
     dbtx db load --project-dir DIR [--run-loc DIR]     import a plain dbt run's artifacts
@@ -23,6 +24,8 @@ exits 2 before dbt starts. dbtx's own flags, accepted anywhere on the command li
     --db-uri URI
     --db-schema NAME         the Postgres schema for dbtx's tables (default dbtx)
     --db-adapter NAME        the store adapter (default: the one for DB_URI)
+    --log-root-location DIR  the root of the run folders (platform mode)
+    --job-id ID              this run's job id (default: a new one; platform mode)
 """
 
 from __future__ import annotations
@@ -32,9 +35,18 @@ from pathlib import Path
 
 from dbt.cli.main import dbtRunner
 
-from dbtx.config import ConfigError, DbtxConfig, load_config
+from dbtx.config import ConfigError, DbtxConfig, load_config, remove_option
 from dbtx.docs.command import run as docs_command
 from dbtx.runner import build, compile_project, exit_code
+from dbtx.runs import (
+    COMMANDS_THAT_EXECUTE_NODES,
+    PARTIAL_PARSE_FILE_NAME,
+    RunFolderError,
+    job_id_for_dbt,
+    prepare_run_folder,
+    publish_docs_site,
+    update_docs_site,
+)
 from dbtx.store.recorder import Recorder
 from dbtx.templates import TemplateError, TemplateRegistry
 
@@ -54,6 +66,7 @@ dbtx commands:
   dbtx docs patch|install|status [options...]          overlay run data onto generated dbt docs
   dbtx docs serve --docs-loc DIR [options...]          serve the generated docs over uvicorn
   dbtx config                                          show the resolved dbtx configuration
+  dbtx warm-cache [dbt parse options...]               refresh a project's partial-parse cache (platform)
   dbtx db init                                         create (Postgres: and its schema) or migrate dbtx's tables
   dbtx db upgrade                                      migrate dbtx's tables to this version
   dbtx db status                                       report on the database: revision, row counts
@@ -70,6 +83,8 @@ dbtx options, accepted anywhere on the command line:
   --db-uri URI                    the database to use
   --db-schema NAME                the Postgres schema for dbtx's tables (default dbtx)
   --db-adapter NAME               the store adapter (default: the one for DB_URI)
+  --log-root-location DIR         the root of the run folders (platform mode)
+  --job-id ID                     this run's job id (default: a new one; platform mode)
 
 `dbtx docs --help` lists the docs subcommands. dbt's help follows.
 
@@ -102,6 +117,42 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     for warning in startup_warnings:
         print(f"dbtx: warning: {warning}", file=sys.stderr)
+
+    # Platform mode: the run's own folder, created only now that every check passed.
+    if config.run_folder is not None:
+        try:
+            prepare_run_folder(config)
+        except RunFolderError as exc:
+            print(f"dbtx: {exc}", file=sys.stderr)
+            return 2
+
+    with job_id_for_dbt(config.job_id):
+        code = run_command(config)
+
+    if config.run_folder is not None:
+        after_the_run(config, code)
+    return code
+
+
+def after_the_run(config: DbtxConfig, code: int) -> None:
+    """Platform runs: keep the project's docs site current (docs/flows/docs_refresh.md).
+    Problems are warnings; the exit code stays dbt's."""
+    if config.command in COMMANDS_THAT_EXECUTE_NODES:
+        lines, warnings = update_docs_site(config)
+        for line in lines:
+            print(line)
+        for warning in warnings:
+            print(f"dbtx: warning: {warning}", file=sys.stderr)
+    elif config.command == "docs generate" and code == 0:
+        try:
+            for line in publish_docs_site(config):
+                print(line)
+        except OSError as exc:
+            print(f"dbtx: warning: the docs site was not updated: {exc}", file=sys.stderr)
+
+
+def run_command(config: DbtxConfig) -> int:
+    """Dispatch the command, once the configuration and the start-up checks passed."""
     args = list(config.argv)
 
     # Bare `dbtx`, or asking it for help, prints dbtx's own usage first; dbt's
@@ -126,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "templates":
         return list_templates(args[1:])
 
+    if args and args[0] == "warm-cache":
+        return warm_cache(config, args[1:])
+
     if args and args[0] == "docs":
         # Bare `dbtx docs`, or asking it for help, is a question about dbtx's
         # own docs commands -- so it is answered here rather than by dbt, whose
@@ -133,13 +187,31 @@ def main(argv: list[str] | None = None) -> int:
         # is no longer the one this runs. A named subcommand dbtx does not own
         # still falls through untouched, help flags and all.
         if len(args) == 1 or args[1] in ("-h", "--help") or args[1] in DOCS_SUBCOMMANDS:
-            return docs_command(args[1:])
+            return docs_command(docs_args(config, args[1:]))
 
     # Passed through to dbt. A recorded command (`run`, `test`, ...) is recorded.
     recorder = Recorder.for_invocation(config)
     result = dbtRunner(callbacks=[recorder.on_event]).invoke(args)
     recorder.finish(result)
     return exit_code(result)
+
+
+# `dbtx docs` subcommands whose --docs-loc defaults to the project's docs site in
+# platform mode. `docs patch` keeps its explicit --docs-loc / --run-loc.
+DOCS_SITE_SUBCOMMANDS = ("install", "status", "serve")
+
+
+def docs_args(config: DbtxConfig, args: list[str]) -> list[str]:
+    """In platform mode `--docs-loc` defaults to the project's docs site (its target
+    folder, which runs no longer write to). dbtx's docs commands take no --project-dir:
+    the configuration has resolved it."""
+    if not config.is_platform or len(args) == 0 or args[0] not in DOCS_SITE_SUBCOMMANDS:
+        return args
+    rest = remove_option(args[1:], "--project-dir")
+    if "--docs-loc" in rest or any(token.startswith("--docs-loc=") for token in rest):
+        return [args[0], *rest]
+    assert config.project_target_dir is not None
+    return [args[0], "--docs-loc", str(config.project_target_dir), *rest]
 
 
 def show_config(config: DbtxConfig) -> int:
@@ -178,11 +250,19 @@ def show_config(config: DbtxConfig) -> int:
             rows.append(("DB_ADAPTER", f"{resolved[0]}  [default for {pair}]"))
         else:
             rows.append(("DB_ADAPTER", f"{resolved[0]}  [{config.db_adapter.source}]"))
+        assert config.log_root_location is not None
+        if config.log_root_location.value is None:
+            rows.append(("LOG_ROOT_LOCATION", "not set"))
+        else:
+            rows.append(
+                ("LOG_ROOT_LOCATION", f"{config.log_root_location.value}  [{config.log_root_location.source}]")
+            )
     else:
         rows.append(("DB_BACKEND", "n/a (standalone mode has no database)"))
         rows.append(("DB_URI", "n/a (standalone mode has no database)"))
         rows.append(("DB_SCHEMA", "n/a (standalone mode has no database)"))
         rows.append(("DB_ADAPTER", "n/a (standalone mode has no database)"))
+        rows.append(("LOG_ROOT_LOCATION", "n/a (standalone mode has no run folders)"))
 
     for name in config.ignored_env_vars:
         rows.append(("ignored", f"{name} (standalone)"))
@@ -227,6 +307,25 @@ def db_command(config: DbtxConfig, args: list[str]) -> int:
         return 2
     print(f"dbtx: unknown command `dbtx db {subcommand}`; {DB_USAGE}", file=sys.stderr)
     return 2
+
+
+def warm_cache(config: DbtxConfig, args: list[str]) -> int:
+    """`dbtx warm-cache`: `dbt parse --no-write-json` into the project's own target
+    folder, which writes only the partial-parse cache that runs copy into their run
+    folders. Not recorded."""
+    if not config.is_platform:
+        print(
+            "dbtx: `dbtx warm-cache` needs platform mode: it warms the cache that platform "
+            "runs copy into their run folders",
+            file=sys.stderr,
+        )
+        return 2
+    assert config.project_target_dir is not None
+    result = dbtRunner().invoke(["parse", "--no-write-json", *args])
+    code = exit_code(result)
+    if code == 0:
+        print(f"dbtx: warmed the partial-parse cache {config.project_target_dir / PARTIAL_PARSE_FILE_NAME}")
+    return code
 
 
 def list_templates(args: list[str]) -> int:

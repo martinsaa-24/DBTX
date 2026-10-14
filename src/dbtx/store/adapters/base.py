@@ -34,10 +34,6 @@ class StoreAdapter(ABC):
     install_hint: ClassVar[str]
     # Whether DB_SCHEMA applies (Postgres has schemas, SQLite does not).
     supports_schemas: ClassVar[bool]
-    # Whether the start-up checks migrate a database that is behind head (or has no
-    # tables yet) instead of refusing to run: True for a local file dbtx owns (SQLite),
-    # False for a shared server, which only `dbtx db init` / `upgrade` changes.
-    upgrades_automatically: ClassVar[bool] = False
     # The oldest server version dbtx works with, and why.
     minimum_server_version: ClassVar[tuple[int, ...]]
     minimum_server_reason: ClassVar[str]

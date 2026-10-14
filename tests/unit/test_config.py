@@ -277,7 +277,7 @@ def test_standalone_mode_ignores_db_env_vars(
 
 
 def test_relative_project_dir_resolves_against_the_root_from_any_cwd(
-    platform: Path, layout: LayoutBuilder, monkeypatch: pytest.MonkeyPatch
+    platform: Path, layout: LayoutBuilder, monkeypatch: pytest.MonkeyPatch, fixed_run: None
 ) -> None:
     monkeypatch.chdir(layout.directory("elsewhere"))
     cfg = load_config(
@@ -288,6 +288,7 @@ def test_relative_project_dir_resolves_against_the_root_from_any_cwd(
     assert cfg.argv == (
         "build", "-s", "x",
         "--project-dir", str(project), "--profiles-dir", str(project),
+        "--target-path", str(cfg.run_folder), "--log-path", str(cfg.run_folder),
     )
 
 
@@ -468,7 +469,7 @@ def test_profiles_dir_pointing_at_the_project_is_accepted(
     monkeypatch.setenv("DBT_PROFILES_DIR", str(project))
     cfg = load_config(["build", "--project-dir", "jaffle-shop", "--profiles-dir", "jaffle-shop"])
     assert cfg.argv.count("--profiles-dir") == 1
-    assert cfg.argv[-1] == str(project)
+    assert cfg.argv[cfg.argv.index("--profiles-dir") + 1] == str(project)
 
 
 def test_profile_and_target_reach_dbt_unchanged(
@@ -592,7 +593,7 @@ def test_db_uri_from_the_cli_beats_file_and_env(
 def test_db_uri_from_the_file_beats_env(platform: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(platform)
     monkeypatch.setenv("DBTX_DB_URI", "sqlite:////env.db")
-    cfg = load_config(BUILD)
+    cfg = load_config([*BUILD, "--log-root-location", "runs"])
     assert cfg.db_uri.source == f"file {platform / 'dbtx.conf'}:1"
 
 
@@ -604,7 +605,7 @@ def test_db_uri_from_env_when_the_file_has_none(
     layout.project(root, "jaffle-shop", "jaffle_shop")
     monkeypatch.chdir(root)
     monkeypatch.setenv("DBTX_DB_URI", "sqlite:////env.db")
-    cfg = load_config(BUILD)
+    cfg = load_config([*BUILD, "--log-root-location", "runs"])
     assert (cfg.db_uri.value, cfg.db_uri.source) == ("sqlite:////env.db", "env DBTX_DB_URI")
 
 
@@ -642,7 +643,7 @@ def test_db_backend_from_the_cli_beats_everything(
     layout.project(root, "jaffle-shop", "jaffle_shop")
     monkeypatch.chdir(root)
     monkeypatch.setenv("DBTX_DB_BACKEND", "enabled")
-    cfg = load_config([*BUILD, "--db-backend", "disabled"])
+    cfg = load_config([*BUILD, "--db-backend", "disabled", "--log-root-location", "runs"])
     assert (cfg.db_backend.value, cfg.db_backend.source) == ("disabled", "cli")
 
 
@@ -1075,7 +1076,7 @@ def test_missing_uri_for_a_database_command(
 @pytest.mark.parametrize(
     "argv",
     [
-        [*BUILD, "--db-backend", "disabled"],
+        [*BUILD, "--db-backend", "disabled", "--log-root-location", "runs"],
         ["deps", "--project-dir", "jaffle-shop"],
         ["debug", "--project-dir", "jaffle-shop"],
         ["config"],

@@ -10,23 +10,25 @@
  },
  "results": [
   {
-   "adapter_response": {},
+   "adapter_response": {
+    "_message": "OK"
+   },
    "criteria": {
     "error_after": {
-     "count": 24,
-     "period": "hour"
+     "count": null,
+     "period": null
     },
     "filter": null,
     "warn_after": {
-     "count": 12,
-     "period": "hour"
+     "count": 1,
+     "period": "day"
     }
    },
    "execution_time": 5.0,
-   "max_loaded_at": "2026-01-01T23:00:00Z",
-   "max_loaded_at_time_ago_in_s": 3630.0,
-   "snapshotted_at": "2026-01-02T00:00:30Z",
-   "status": "pass",
+   "max_loaded_at": "2026-08-31T20:26:36+00:00",
+   "max_loaded_at_time_ago_in_s": 604800.0,
+   "snapshotted_at": "2026-09-07T20:26:36Z",
+   "status": "warn",
    "thread_id": "Thread-1 (worker)",
    "timing": [
     {
@@ -40,12 +42,7 @@
      "started_at": "2026-01-02T00:00:11Z"
     }
    ],
-   "unique_id": "source.jaffle_shop.ecom.raw_orders"
-  },
-  {
-   "error": "Database Error\n  Catalog Error: Table with name raw_customers does not exist!",
-   "status": "runtime error",
-   "unique_id": "source.jaffle_shop.ecom.raw_customers"
+   "unique_id": "source.jaffle_shop.jaffle_raw.raw_orders"
   }
  ]
 }

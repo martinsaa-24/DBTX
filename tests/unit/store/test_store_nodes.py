@@ -106,10 +106,10 @@ def test_the_first_sync_stores_every_node_version_and_edge(store: Store, manifes
     rows = rows_at(manifest, T1)
     counts = sync(store, rows)
     assert counts == SyncCounts(
-        nodes=49, versions=42, edges=len(rows.edges), removed_nodes=0, removed_edges=0
+        nodes=51, versions=43, edges=len(rows.edges), removed_nodes=0, removed_edges=0
     )
-    assert count(store, m.Node) == 49
-    assert count(store, m.NodeVersion) == 42
+    assert count(store, m.Node) == 51
+    assert count(store, m.NodeVersion) == 43
     assert count(store, m.NodeEdge) == len(rows.edges)
     customers = node(store, CUSTOMERS)
     assert (customers.first_seen_at, customers.last_seen_at, customers.removed_at) == (T1, T1, None)
@@ -123,7 +123,7 @@ def test_a_later_sync_moves_last_seen_only(store: Store, manifest: Manifest) -> 
     sync(store, rows_at(manifest, T2))
     customers = node(store, CUSTOMERS)
     assert (customers.first_seen_at, customers.last_seen_at) == (T1, T2)
-    assert count(store, m.NodeVersion) == 42
+    assert count(store, m.NodeVersion) == 43
     checksum = manifest.nodes[CUSTOMERS].checksum.checksum
     assert versions(store, CUSTOMERS) == [(checksum, T1, T2)]
 

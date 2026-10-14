@@ -39,6 +39,7 @@ START_COLUMNS = [
     "run_by",
     "host",
     "error_message",
+    "run_folder",
 ]
 
 
@@ -51,8 +52,10 @@ def start(
     record: InvocationRecord,
     run_by: Optional[str],
     host: Optional[str],
+    run_folder: Optional[str] = None,
 ) -> None:
-    """Store the invocation (not finished yet: no end time or result)."""
+    """Store the invocation (not finished yet: no end time or result). `run_folder`: the
+    run's folder (platform runs); None for a post-hoc load."""
     if record.command is None:
         which = record.args.get("which", "?")
         raise StoreError(f"`{which}` is not a recorded command; invocation {record.invocation_id!r} not stored")
@@ -75,6 +78,7 @@ def start(
         "run_by": run_by,
         "host": host,
         "error_message": None,
+        "run_folder": run_folder,
     }
     session.execute(
         adapter.upsert(m.Invocation.__table__, [row], keys=["invocation_id"], update=START_COLUMNS)

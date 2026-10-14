@@ -121,12 +121,13 @@ def test_open_store_without_db_adapter_uses_the_default(
         store.dispose()
 
 
-def test_which_adapters_upgrade_automatically() -> None:
-    # A SQLite file is local and dbtx owns it: the start-up checks migrate it. A shared
-    # server is upgraded only by `dbtx db upgrade`. Plugins inherit the default (no).
-    assert SqliteAdapter.upgrades_automatically is True
-    assert PostgresAdapter.upgrades_automatically is False
-    assert FakeDbAdapter.upgrades_automatically is False
+def test_no_adapter_upgrades_automatically() -> None:
+    # Schema changes are deliberate (`dbtx db init` / `upgrade`), whatever the backend:
+    # the adapter interface has no switch for it any more.
+    from dbtx.store.adapters.base import StoreAdapter
+
+    for adapter_class in (StoreAdapter, SqliteAdapter, PostgresAdapter, FakeDbAdapter):
+        assert not hasattr(adapter_class, "upgrades_automatically"), adapter_class
 
 
 def test_open_store_refuses_standalone_mode() -> None:

@@ -164,6 +164,13 @@ def adapter_response_of(result: dict[str, Any]) -> Optional[dict[str, Any]]:
     return copy.deepcopy(response)
 
 
+def text_or_none(value: Any) -> Optional[str]:
+    """A string field of an artifact; missing or empty is None."""
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
 def run_result_rows(
     run_results: dict[str, Any], project: str, checksums: dict[str, Optional[str]]
 ) -> list[dict[str, Any]]:
@@ -191,6 +198,8 @@ def run_result_rows(
                 "failures": result.get("failures"),
                 "rows_affected": rows_affected,
                 "adapter_response": response,
+                "compiled_code": text_or_none(result.get("compiled_code")),
+                "relation_name": text_or_none(result.get("relation_name")),
             }
         )
     return rows
@@ -218,6 +227,8 @@ def freshness_result_rows(sources: dict[str, Any], project: str) -> list[dict[st
                 "failures": None,
                 "rows_affected": None,
                 "adapter_response": adapter_response_of(result),
+                "compiled_code": None,
+                "relation_name": None,
             }
         )
     return rows

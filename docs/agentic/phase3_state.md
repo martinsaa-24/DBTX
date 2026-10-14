@@ -5,10 +5,10 @@ sections D4, 5.5 (missing store), 6.6 step 8 (revision check), 6.7 (`dbtx db ini
 `upgrade`, `status`) and "Phase 3". If a session is interrupted, resume from the first
 unchecked item. Update this file after every step.
 
-**Phase 3 complete (2026-10-11).** Not committed.
+**Phase 3 complete (2026-10-11).** Committed in `5d69c94`.
 
 **Branch:** `feature/db-backend`, on top of `02fc5d9` (the Phase 2 commit, which the user made
-during Phase 3). Phase 3 is not committed.
+during Phase 3). Phase 3 is committed in `5d69c94`.
 
 **Style rules from the user:** simple, verbose code (repetition is fine where it avoids
 abstraction); strict red -> green TDD per functional group, with the red and green

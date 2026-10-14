@@ -14,7 +14,7 @@ import pytest
 
 from dbtx import cli
 from dbtx.config import DbtxConfig
-from tests.unit.conftest import FakeDbtRunner, LayoutBuilder
+from tests.unit.conftest import RUN_JOB_ID, FakeDbtRunner, LayoutBuilder
 
 
 @pytest.fixture
@@ -100,11 +100,12 @@ def test_help_shows_dbtx_usage_before_dbt_help(
     for text in [
         "dbtx build", "dbtx compile", "dbtx templates", "dbtx docs", "dbtx config",
         "dbtx db init", "dbtx db upgrade", "dbtx db status", "dbtx db load", "dbtx db projects",
+        "dbtx warm-cache",
     ]:
         assert text in out
     for flag in [
         "--platform-dir", "--standalone-mode", "--config-file", "--db-backend", "--db-uri",
-        "--db-schema", "--db-adapter",
+        "--db-schema", "--db-adapter", "--log-root-location", "--job-id",
     ]:
         assert flag in out
     # ...and dbt's help still follows, for the commands passed through to it.
@@ -129,15 +130,19 @@ def test_subcommand_help_still_goes_to_dbt(
 
 
 def test_platform_argv_reaches_dbt_rewritten(
-    platform: Path,
+    initialised_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     fake_dbt: type[FakeDbtRunner],
+    fixed_run: None,
 ) -> None:
+    platform = initialised_platform
     monkeypatch.chdir(platform)
     project = str(platform / "jaffle-shop")
+    folder = str(platform / ".dbtx" / "logs" / "jaffle_shop" / "2026-10-12" / "14" / RUN_JOB_ID)
     assert cli.main(["run", "--project-dir", "jaffle-shop", "-s", "x"]) == 0
     assert fake_dbt.calls == [
-        ["run", "-s", "x", "--project-dir", project, "--profiles-dir", project]
+        ["run", "-s", "x", "--project-dir", project, "--profiles-dir", project,
+         "--target-path", folder, "--log-path", folder]
     ]
 
 
@@ -151,7 +156,8 @@ def test_standalone_argv_reaches_dbt_untouched(
     assert fake_dbt.calls == [["run", "-s", "x"]]
 
 
-def test_build_receives_the_config(platform: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_receives_the_config(initialised_platform: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    platform = initialised_platform
     monkeypatch.chdir(platform)
     received = {}
 
@@ -196,7 +202,7 @@ def test_dbtx_config_shows_db_schema(
     monkeypatch.chdir(root)
     assert cli.main(["config"]) == 0
     out = capsys.readouterr().out
-    assert f"DB_SCHEMA      analytics_dbtx  [file {root / 'dbtx.conf'}:2]" in out
+    assert f"DB_SCHEMA          analytics_dbtx  [file {root / 'dbtx.conf'}:2]" in out
 
 
 def test_dbtx_config_db_schema_with_sqlite(
@@ -206,7 +212,7 @@ def test_dbtx_config_db_schema_with_sqlite(
 ) -> None:
     monkeypatch.chdir(platform)
     assert cli.main(["config"]) == 0
-    assert "DB_SCHEMA      n/a (SQLite has no schemas)" in capsys.readouterr().out
+    assert "DB_SCHEMA          n/a (SQLite has no schemas)" in capsys.readouterr().out
 
 
 def test_dbtx_config_db_schema_without_a_uri(
@@ -217,7 +223,7 @@ def test_dbtx_config_db_schema_without_a_uri(
     root = layout.platform_root(sample="backend_without_uri.conf")
     monkeypatch.chdir(root)
     assert cli.main(["config"]) == 0
-    assert "DB_SCHEMA      dbtx  [default]" in capsys.readouterr().out
+    assert "DB_SCHEMA          dbtx  [default]" in capsys.readouterr().out
 
 
 def test_dbtx_config_shows_the_default_adapter(
@@ -227,7 +233,7 @@ def test_dbtx_config_shows_the_default_adapter(
 ) -> None:
     monkeypatch.chdir(platform)
     assert cli.main(["config"]) == 0
-    assert "DB_ADAPTER     sqlite  [default for sqlite+pysqlite]" in capsys.readouterr().out
+    assert "DB_ADAPTER         sqlite  [default for sqlite+pysqlite]" in capsys.readouterr().out
 
 
 def test_dbtx_config_shows_db_adapter(
@@ -241,7 +247,7 @@ def test_dbtx_config_shows_db_adapter(
     monkeypatch.chdir(root)
     assert cli.main(["config"]) == 0
     out = capsys.readouterr().out
-    assert f"DB_ADAPTER     custom_sqlite  [file {root / 'dbtx.conf'}:2]" in out
+    assert f"DB_ADAPTER         custom_sqlite  [file {root / 'dbtx.conf'}:2]" in out
 
 
 def test_dbtx_config_db_adapter_without_a_uri(
@@ -252,7 +258,7 @@ def test_dbtx_config_db_adapter_without_a_uri(
     root = layout.platform_root(sample="backend_without_uri.conf")
     monkeypatch.chdir(root)
     assert cli.main(["config"]) == 0
-    assert "DB_ADAPTER     not set (the default for DB_URI)" in capsys.readouterr().out
+    assert "DB_ADAPTER         not set (the default for DB_URI)" in capsys.readouterr().out
 
 
 def test_dbtx_config_in_standalone_mode(
@@ -265,8 +271,8 @@ def test_dbtx_config_in_standalone_mode(
     assert cli.main(["config", "--standalone-mode"]) == 0
     out = capsys.readouterr().out
     assert "standalone (forced by --standalone-mode)" in out
-    assert "DB_SCHEMA      n/a (standalone mode has no database)" in out
-    assert "DB_ADAPTER     n/a (standalone mode has no database)" in out
+    assert "DB_SCHEMA          n/a (standalone mode has no database)" in out
+    assert "DB_ADAPTER         n/a (standalone mode has no database)" in out
     assert "DBTX_DB_URI (standalone)" in out
 
 

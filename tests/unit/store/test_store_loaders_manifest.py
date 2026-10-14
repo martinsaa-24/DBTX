@@ -57,7 +57,7 @@ def test_project_adapter_type_and_seen_at(manifest: Manifest) -> None:
 def test_node_counts_per_resource_type(manifest: Manifest) -> None:
     rows = rows_of(manifest)
     counts = Counter(node["resource_type"] for node in rows.nodes)
-    assert counts == {"test": 26, "model": 11, "exposure": 7, "seed": 5}
+    assert counts == {"test": 26, "model": 11, "exposure": 7, "seed": 5, "snapshot": 1, "source": 1}
 
 
 def test_node_rows(manifest: Manifest) -> None:
@@ -78,7 +78,7 @@ def test_node_rows(manifest: Manifest) -> None:
 def test_a_version_for_every_node_with_a_checksum(manifest: Manifest) -> None:
     rows = rows_of(manifest)
     with_checksum = [node for node in rows.nodes if node["checksum"] is not None]
-    assert len(with_checksum) == 42
+    assert len(with_checksum) == 43
     assert rows.versions == [
         {"project": "jaffle_shop", "unique_id": node["unique_id"], "checksum": node["checksum"]}
         for node in with_checksum
@@ -109,7 +109,7 @@ def test_read_manifest_from_a_file(tmp_path: Path) -> None:
     path = write_manifest(frozen_json(), tmp_path / "manifest.json")
     rows = manifest_rows(read_manifest(path))
     assert rows.seen_at == datetime(2026, 1, 1, tzinfo=timezone.utc)
-    assert len(rows.nodes) == 49
+    assert len(rows.nodes) == 51
 
 
 def test_unstored_resource_types_and_their_edges_are_dropped(tmp_path: Path) -> None:
@@ -142,7 +142,7 @@ def test_unstored_resource_types_and_their_edges_are_dropped(tmp_path: Path) -> 
     stored = {node["unique_id"] for node in rows.nodes}
     assert analysis["unique_id"] not in stored
     assert hook["unique_id"] not in stored
-    assert len(rows.nodes) == 49
+    assert len(rows.nodes) == 51
     for edge in rows.edges:
         assert edge["parent_id"] in stored and edge["child_id"] in stored
     assert (analysis["unique_id"], test_id) not in {(e["parent_id"], e["child_id"]) for e in rows.edges}

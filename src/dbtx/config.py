@@ -23,7 +23,9 @@ from __future__ import annotations
 import importlib.util
 import os
 import re
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -40,6 +42,8 @@ FLAG_DB_ADAPTER = "--db-adapter"
 FLAG_CONFIG_FILE = "--config-file"
 FLAG_PLATFORM_DIR = "--platform-dir"
 FLAG_STANDALONE_MODE = "--standalone-mode"
+FLAG_LOG_ROOT_LOCATION = "--log-root-location"
+FLAG_JOB_ID = "--job-id"
 
 FLAGS_WITH_A_VALUE = (
     FLAG_DB_BACKEND,
@@ -48,7 +52,12 @@ FLAGS_WITH_A_VALUE = (
     FLAG_DB_ADAPTER,
     FLAG_CONFIG_FILE,
     FLAG_PLATFORM_DIR,
+    FLAG_LOG_ROOT_LOCATION,
+    FLAG_JOB_ID,
 )
+
+# The run-folder flags: isolated runs are a platform feature.
+RUN_FOLDER_FLAGS = (FLAG_LOG_ROOT_LOCATION, FLAG_JOB_ID)
 
 # The --db-* flags: none of them has any meaning in standalone mode.
 DB_FLAGS = (FLAG_DB_BACKEND, FLAG_DB_URI, FLAG_DB_SCHEMA, FLAG_DB_ADAPTER)
@@ -58,7 +67,14 @@ FILE_KEY_DB_BACKEND = "DB_BACKEND"
 FILE_KEY_DB_URI = "DB_URI"
 FILE_KEY_DB_SCHEMA = "DB_SCHEMA"
 FILE_KEY_DB_ADAPTER = "DB_ADAPTER"
-FILE_KEYS = (FILE_KEY_DB_BACKEND, FILE_KEY_DB_URI, FILE_KEY_DB_SCHEMA, FILE_KEY_DB_ADAPTER)
+FILE_KEY_LOG_ROOT_LOCATION = "LOG_ROOT_LOCATION"
+FILE_KEYS = (
+    FILE_KEY_DB_BACKEND,
+    FILE_KEY_DB_URI,
+    FILE_KEY_DB_SCHEMA,
+    FILE_KEY_DB_ADAPTER,
+    FILE_KEY_LOG_ROOT_LOCATION,
+)
 
 # Environment variables dbtx reads.
 ENV_DB_BACKEND = "DBTX_DB_BACKEND"
@@ -66,6 +82,7 @@ ENV_DB_URI = "DBTX_DB_URI"
 ENV_DB_SCHEMA = "DBTX_DB_SCHEMA"
 ENV_DB_ADAPTER = "DBTX_DB_ADAPTER"
 ENV_CONFIG_FILE = "DBTX_CONFIG_FILE"
+ENV_LOG_ROOT_LOCATION = "DBTX_LOG_ROOT_LOCATION"
 
 # Every DBTX_* name dbtx knows about. Any other DBTX_* variable gets a warning, the env
 # counterpart of the strict keys in dbtx.conf. DBTX_DB_STRICT is a test switch, read
@@ -76,7 +93,28 @@ KNOWN_ENV_VARS = (
     ENV_DB_SCHEMA,
     ENV_DB_ADAPTER,
     ENV_CONFIG_FILE,
+    ENV_LOG_ROOT_LOCATION,
     "DBTX_DB_STRICT",
+)
+
+# The key in --vars that names dbtx's job id (standalone mode only; in platform mode
+# dbtx sets the job id itself and hands it to dbt as DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID).
+DBTX_JOB_ID_VAR = "DBTX_JOB_ID"
+
+# Commands that run in their own run folder in platform mode: the recorded commands
+# (plan 5.2; dbtx.store.enums.COMMAND_BY_CLI). They require LOG_ROOT_LOCATION.
+COMMANDS_WITH_A_RUN_FOLDER = (
+    "build",
+    "compile",
+    "run",
+    "test",
+    "seed",
+    "snapshot",
+    "parse",
+    "run-operation",
+    "source freshness",
+    "source snapshot-freshness",
+    "docs generate",
 )
 
 DB_BACKEND_ENABLED = "enabled"
@@ -118,6 +156,7 @@ COMMANDS_THAT_REPORT_ON_THE_DATABASE = ("config", "db status")
 # Commands dbtx implements itself, rather than handing them to dbt.
 DBTX_COMMANDS = (
     "templates",
+    "warm-cache",
     "config",
     "docs patch",
     "docs install",
@@ -144,6 +183,10 @@ COMMANDS_WITHOUT_A_PROJECT = (
     "db status",
     "db projects",
 )
+
+# `dbtx docs` commands whose --docs-loc defaults, in platform mode, to the docs site in
+# the project's own target folder: they need a project only when --docs-loc is not given.
+DOCS_SITE_COMMANDS = ("docs install", "docs status", "docs serve")
 
 # Two-word commands start with one of these groups.
 COMMAND_GROUPS = ("docs", "source", "db")
@@ -195,6 +238,14 @@ class DbtxConfig:
     warnings: tuple[str, ...]
     # DBTX_* variables that were set but ignored (standalone mode).
     ignored_env_vars: tuple[str, ...]
+    # Isolated runs (platform mode): the root of the run folders (None in standalone
+    # mode), and for a command that runs in a run folder its job id and folder.
+    log_root_location: Optional[Setting] = None
+    job_id: Optional[str] = None
+    run_folder: Optional[Path] = None
+    # The project's own target folder (platform mode, a command with a project): where
+    # the warm partial-parse cache and the docs site live.
+    project_target_dir: Optional[Path] = None
 
     @property
     def is_platform(self) -> bool:
@@ -221,6 +272,21 @@ class DbtxConfig:
         if self.db_uri is None or self.db_uri.value is None:
             return None
         return mask_uri(self.db_uri.value)
+
+
+# --------------------------------------------------------------------------------------
+# Time and generated ids (tests replace these)
+# --------------------------------------------------------------------------------------
+
+
+def run_started_at() -> datetime:
+    """Now, aware UTC: names the run folder's date and hour."""
+    return datetime.now(timezone.utc)
+
+
+def new_job_id() -> str:
+    """A new job id for a run that was given none."""
+    return str(uuid.uuid4())
 
 
 # --------------------------------------------------------------------------------------
@@ -261,14 +327,29 @@ def load_config(argv: list[str]) -> DbtxConfig:
             f"options after it, e.g. `dbtx build --debug`"
         )
     project_dir: Optional[Path] = None
-    if not is_help and command_needs_a_project(command):
+    needs_a_project = command_needs_a_project(command)
+    if command in DOCS_SITE_COMMANDS and last_option_value(rest, "--docs-loc") is None:
+        # Without --docs-loc these default to the project's docs site (plan Phase 6).
+        needs_a_project = True
+    if not is_help and needs_a_project:
         project_dir = resolve_platform_project_dir(rest, platform_root, cwd)
         check_no_project_config_file(project_dir, platform_root)
         if command_is_handed_to_dbt(command):
             check_profiles_dir(rest, project_dir, cwd)
+            check_no_dbtx_job_id_in_vars(rest)
             rest = inject_project_and_profiles_dir(rest, project_dir)
         elif command == "templates":
             rest = inject_project_dir_only(rest, project_dir)
+        elif command == "warm-cache":
+            # dbtx's command, but it hands `dbt parse` the rest of the argv.
+            check_profiles_dir(rest, project_dir, cwd)
+            check_no_dbtx_job_id_in_vars(rest)
+            if last_option_value(rest, "--target-path") is not None:
+                raise ConfigError(
+                    "--target-path conflicts with `dbtx warm-cache`: the cache goes to the "
+                    "project's target folder, where runs look for it"
+                )
+            rest = inject_project_and_profiles_dir(rest, project_dir)
 
     config_file, config_file_reason = locate_config_file(flag_values, platform_root, cwd)
     file_entries = parse_config_file(config_file)
@@ -302,6 +383,30 @@ def load_config(argv: list[str]) -> DbtxConfig:
     if db_uri.value is not None:
         db_uri = normalise_sqlite_path(db_uri)
 
+    # Isolated runs (plan Phase 6): the run folder, its job id, and dbt's paths.
+    log_root_location = resolve_log_root_location(flag_values, file_entries, config_file, cwd)
+    job_id: Optional[str] = None
+    run_folder: Optional[Path] = None
+    project_target_dir: Optional[Path] = None
+    if project_dir is not None:
+        project_target_dir = project_target_dir_for(project_dir)
+    if command in COMMANDS_WITH_A_RUN_FOLDER and project_dir is not None:
+        check_no_own_target_or_log_path(rest, command)
+        if log_root_location.value is None:
+            raise ConfigError(
+                f"`dbtx {command}` needs a run folder root: set LOG_ROOT_LOCATION (with "
+                f"{FLAG_LOG_ROOT_LOCATION}, LOG_ROOT_LOCATION= in {config_file}, or "
+                f"{ENV_LOG_ROOT_LOCATION}), or pass {FLAG_STANDALONE_MODE}"
+            )
+        job_id = choose_job_id(flag_values)
+        run_folder = run_folder_for(Path(log_root_location.value), project_dir, job_id)
+        rest = rest + ["--target-path", str(run_folder), "--log-path", str(run_folder)]
+    elif FLAG_JOB_ID in flag_values and not is_help:
+        raise ConfigError(
+            f"{FLAG_JOB_ID} applies only to commands that run in a run folder, not "
+            f"`dbtx {command}`"
+        )
+
     # Step 8 (Phase 0 part): guard G1. A collision involving this project is decided by
     # the start-up checks, together with guard G2 (dbtx.store.startup).
     project_name = None
@@ -329,6 +434,10 @@ def load_config(argv: list[str]) -> DbtxConfig:
         argv=tuple(rest),
         warnings=tuple(warnings),
         ignored_env_vars=(),
+        log_root_location=log_root_location,
+        job_id=job_id,
+        run_folder=run_folder,
+        project_target_dir=project_target_dir,
     )
 
 
@@ -436,6 +545,12 @@ def decide_mode(
                 f"{FLAG_CONFIG_FILE} has no effect with {FLAG_STANDALONE_MODE}: "
                 f"standalone mode reads no config file"
             )
+        for flag in RUN_FOLDER_FLAGS:
+            if flag in flag_values:
+                raise ConfigError(
+                    f"{flag} has no effect with {FLAG_STANDALONE_MODE}: run folders are a "
+                    f"platform feature"
+                )
         return MODE_STANDALONE, f"forced by {FLAG_STANDALONE_MODE}", None
 
     # Rule 1: --platform-dir.
@@ -484,7 +599,14 @@ def standalone_config(
 ) -> DbtxConfig:
     """Standalone mode: no config file, no database options, no platform checks."""
     ignored = []
-    for name in (ENV_DB_BACKEND, ENV_DB_URI, ENV_DB_SCHEMA, ENV_DB_ADAPTER, ENV_CONFIG_FILE):
+    for name in (
+        ENV_DB_BACKEND,
+        ENV_DB_URI,
+        ENV_DB_SCHEMA,
+        ENV_DB_ADAPTER,
+        ENV_CONFIG_FILE,
+        ENV_LOG_ROOT_LOCATION,
+    ):
         if os.environ.get(name):
             ignored.append(name)
 
@@ -1071,6 +1193,114 @@ def normalise_sqlite_path(setting: Setting) -> Setting:
     absolute = (setting.origin_dir / database).resolve()
     new_value = url.set(database=str(absolute)).render_as_string(hide_password=False)
     return Setting(new_value, setting.source, setting.origin_dir)
+
+
+# --------------------------------------------------------------------------------------
+# Isolated runs (plan Phase 6)
+# --------------------------------------------------------------------------------------
+
+
+def resolve_log_root_location(
+    flag_values: dict[str, str],
+    file_entries: dict[str, tuple[str, int]],
+    config_file: Path,
+    cwd: Path,
+) -> Setting:
+    """LOG_ROOT_LOCATION: CLI, then the config file, then the env, made absolute against
+    the layer that set it (the config file's folder; the cwd for the CLI and the env)."""
+    if FLAG_LOG_ROOT_LOCATION in flag_values:
+        raw = flag_values[FLAG_LOG_ROOT_LOCATION]
+        source = "cli"
+        origin = cwd
+    elif FILE_KEY_LOG_ROOT_LOCATION in file_entries:
+        raw, line = file_entries[FILE_KEY_LOG_ROOT_LOCATION]
+        source = f"file {config_file}:{line}"
+        origin = config_file.parent
+    elif os.environ.get(ENV_LOG_ROOT_LOCATION):
+        raw = os.environ[ENV_LOG_ROOT_LOCATION]
+        source = f"env {ENV_LOG_ROOT_LOCATION}"
+        origin = cwd
+    else:
+        return Setting(None, "unset", None)
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = origin / path
+    return Setting(str(path.resolve()), source, origin)
+
+
+def project_target_dir_for(project_dir: Path) -> Path:
+    """The project's own target folder, as dbt resolves it without --target-path:
+    DBT_TARGET_PATH, else `target-path` in dbt_project.yml, else `target`; relative to
+    the project. Runs no longer write there: it holds the warm partial-parse cache and
+    the docs site."""
+    target_path = os.environ.get("DBT_TARGET_PATH")
+    if not target_path:
+        target_path = "target"
+        try:
+            data = yaml.safe_load((project_dir / DBT_PROJECT_FILE_NAME).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            data = None
+        if isinstance(data, dict) and isinstance(data.get("target-path"), str):
+            target_path = data["target-path"]
+    path = Path(target_path).expanduser()
+    if not path.is_absolute():
+        path = project_dir / path
+    return path
+
+
+def check_no_dbtx_job_id_in_vars(argv: list[str]) -> None:
+    """In platform mode dbtx sets the job id; DBTX_JOB_ID in --vars would contradict it.
+    Vars that are not valid YAML are left for dbt to report."""
+    raw = last_option_value(argv, "--vars")
+    if raw is None:
+        return
+    try:
+        parsed = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return
+    if isinstance(parsed, dict) and DBTX_JOB_ID_VAR in parsed:
+        raise ConfigError(
+            f"{DBTX_JOB_ID_VAR} in --vars conflicts with platform mode: dbtx sets the job "
+            f"id. Use {FLAG_JOB_ID} ID instead"
+        )
+
+
+def check_no_own_target_or_log_path(argv: list[str], command: str) -> None:
+    """A command with a run folder writes there; a --target-path / --log-path of the
+    user's own would be silently overridden, so it is refused."""
+    for option in ("--target-path", "--log-path"):
+        if last_option_value(argv, option) is not None:
+            raise ConfigError(
+                f"{option} conflicts with platform mode: `dbtx {command}` writes to its "
+                f"run folder under LOG_ROOT_LOCATION"
+            )
+
+
+def choose_job_id(flag_values: dict[str, str]) -> str:
+    """--job-id (a plain folder name), else a new one."""
+    if FLAG_JOB_ID not in flag_values:
+        return new_job_id()
+    job_id = flag_values[FLAG_JOB_ID]
+    if job_id in (".", "..") or "/" in job_id or "\\" in job_id:
+        raise ConfigError(f"{FLAG_JOB_ID} {job_id!r} is not a plain folder name")
+    return job_id
+
+
+def run_folder_for(log_root: Path, project_dir: Path, job_id: str) -> Path:
+    """`<root>/<dbt project name>/<YYYY-MM-DD>/<HH>/<job id>` (UTC). Refused when it
+    already exists: every run needs its own job id."""
+    project_name = read_project_name(project_dir)
+    if project_name is None:
+        # dbt reports the unusable name; the folder still needs one.
+        project_name = project_dir.name
+    started = run_started_at().astimezone(timezone.utc)
+    folder = log_root / project_name / started.strftime("%Y-%m-%d") / started.strftime("%H") / job_id
+    if folder.exists():
+        raise ConfigError(
+            f"run folder {folder} already exists: job id {job_id!r} has already run this "
+            f"hour. Every run needs its own job id"
+        )
+    return folder
 
 
 # --------------------------------------------------------------------------------------

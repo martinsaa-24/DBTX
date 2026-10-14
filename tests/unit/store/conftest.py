@@ -196,8 +196,8 @@ SQLITE_MEMORY_URI = "sqlite+pysqlite:///:memory:"
 # A revision after dbtx's head, for "behind head" tests (see `extra_revision`).
 EXTRA_REVISION = '''"""Test only: an empty revision after dbtx's head."""
 
-revision = "0002"
-down_revision = "0001"
+revision = "0003"
+down_revision = "0002"
 branch_labels = None
 depends_on = None
 
@@ -213,15 +213,15 @@ def downgrade() -> None:
 
 @pytest.fixture
 def extra_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    """dbtx's migrations plus an empty revision `0002` after its head: copies them to
+    """dbtx's migrations plus an empty revision `0003` after its head: copies them to
     `tmp_path` and points `dbtx.store.migrate` at the copy. Returns the new head, so a
     database at dbtx's real head is now one revision behind."""
     source = Path(dbtx.store.__file__).parent / "migrations"
     copy = tmp_path / "migrations"
     shutil.copytree(source, copy, ignore=shutil.ignore_patterns("__pycache__"))
-    (copy / "versions" / "0002_test_only.py").write_text(EXTRA_REVISION)
+    (copy / "versions" / "0003_test_only.py").write_text(EXTRA_REVISION)
     monkeypatch.setattr(migrate, "SCRIPT_LOCATION", str(copy))
-    return "0002"
+    return "0003"
 
 
 def sqlite_file_uri(tmp_path: Path) -> str:

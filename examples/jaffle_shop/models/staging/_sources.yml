@@ -1,0 +1,13 @@
+# The raw orders (loaded by `dbt seed`), declared as a source so the example has
+# something for `dbtx source freshness` to check. The seed data is fixed and in the
+# past, so the check always warns: a deterministic result for the tests.
+sources:
+  - name: jaffle_raw
+    schema: main
+    tables:
+      - name: raw_orders
+        description: Orders as loaded from seeds/raw_orders.csv.
+        config:
+          loaded_at_field: ordered_at
+          freshness:
+            warn_after: {count: 1, period: day}

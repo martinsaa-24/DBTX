@@ -117,14 +117,14 @@ def test_load_the_example_artifacts(
     monkeypatch.chdir(example_platform)
     assert load(store, "--run-loc", "artifacts") == 0
     assert capsys.readouterr().out == (
-        f"loaded the manifest of jaffle_shop from {run_loc}: 49 nodes, 42 versions, 53 edges, "
+        f"loaded the manifest of jaffle_shop from {run_loc}: 51 nodes, 43 versions, 54 edges, "
         f"0 newly removed\n"
         f"loaded 6 reports\n"
-        f"loaded invocation {RUN_ID} (build, warning): 48 node results\n"
+        f"loaded invocation {RUN_ID} (build, warning): 49 node results\n"
     )
     assert row_counts(store) == {
-        "project": 1, "job": 0, "node": 49, "node_version": 42, "node_edge": 53, "invocation": 1,
-        "node_result": 48, "report": 6, "report_render": 0,
+        "project": 1, "job": 0, "node": 51, "node_version": 43, "node_edge": 54, "invocation": 1,
+        "node_result": 49, "report": 6, "report_render": 0,
     }
     with store.session() as session:
         invocation = session.get(m.Invocation, RUN_ID)
@@ -165,9 +165,10 @@ def test_load_sources_json(
     write_artifacts(example_platform / "artifacts", run_results=False, sources=True)
     monkeypatch.chdir(example_platform)
     assert load(store, "--run-loc", "artifacts") == 0
-    # The example project has no sources: both results are skipped.
-    assert f"loaded invocation {FRESHNESS_ID} (source freshness, failure): 0 node results, 2 skipped " \
-        f"(no stored node)\n" in capsys.readouterr().out
+    # The example's source is in the manifest: its (stale) result is stored.
+    assert f"loaded invocation {FRESHNESS_ID} (source freshness, warning): 1 node results\n" in (
+        capsys.readouterr().out
+    )
     with store.session() as session:
         invocation = session.get(m.Invocation, FRESHNESS_ID)
     assert (invocation.command, invocation.manifest_hash, invocation.args) == ("source freshness", None, {})
@@ -200,7 +201,7 @@ def test_an_unrecorded_command_is_not_loaded(
     assert load(store, "--run-loc", "artifacts") == 0
     assert "dbtx: warning: run_results.json is from `dbt ls`, which dbtx does not record" in capsys.readouterr().err
     assert row_counts(store)["invocation"] == 0
-    assert row_counts(store)["node"] == 49
+    assert row_counts(store)["node"] == 51
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
@@ -216,7 +217,7 @@ def test_invalid_report_definitions_skip_the_report_sync(
     assert load(store, "--run-loc", "artifacts") == 0
     assert "dbtx: warning: reports not loaded: " in capsys.readouterr().err
     counts = row_counts(store)
-    assert (counts["report"], counts["node"], counts["invocation"]) == (0, 49, 1)
+    assert (counts["report"], counts["node"], counts["invocation"]) == (0, 51, 1)
 
 
 # --------------------------------------------------------------------------------------
@@ -295,5 +296,7 @@ def test_unknown_arguments(
 ) -> None:
     monkeypatch.chdir(example_platform)
     uri = f"sqlite:///{tmp_path / 'dbtx.db'}"
+    assert cli.main(["db", "init", "--db-uri", uri]) == 0
+    capsys.readouterr()
     assert cli.main(["db", "load", "--project-dir", "jaffle-shop", "--nope", "--db-uri", uri]) == 2
     assert capsys.readouterr().err.endswith("dbtx: usage: dbtx db load --project-dir DIR [--run-loc DIR]\n")

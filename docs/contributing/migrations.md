@@ -15,9 +15,10 @@ This page is for contributors who change the store's models.
   get the adapter's `json_type()`), and on Postgres every table lands in `DB_SCHEMA`
   through the engine's `schema_translate_map`. The version table, `alembic_version`,
   lives in `DB_SCHEMA` too (`version_table_schema`).
-- Users run them with `dbtx db init` / `dbtx db upgrade`. The start-up checks migrate a
-  SQLite store automatically (`StoreAdapter.upgrades_automatically`), and refuse a
-  Postgres database that is behind.
+- Users run them with `dbtx db init` / `dbtx db upgrade`, and **only** those two
+  commands change the schema, on every backend (a deliberate step, decided after
+  Phase 6). The start-up checks refuse a database without dbtx's tables
+  (`run dbtx db init`) or behind head (`run dbtx db upgrade`); SQLite is no exception.
 - `migrate.revision_status()` compares the database with head:
   `uninitialised`, `current`, `behind`, or `unknown` (migrated by a newer dbtx).
 
@@ -42,10 +43,10 @@ This page is for contributors who change the store's models.
    with engine.begin() as connection:
        config = migrate.alembic_config(connection, None)
        command.upgrade(config, "head")
-       command.revision(config, message="describe the change", autogenerate=True, rev_id="0002")
+       command.revision(config, message="describe the change", autogenerate=True, rev_id="0003")
    ```
 
-   This writes `versions/0002_describe_the_change.py`. With no model change, its
+   This writes `versions/0003_describe_the_change.py`. With no model change, its
    `upgrade()` and `downgrade()` are empty.
 3. **Review it by hand.** Autogenerate is a draft:
    - **Imports:** it renders dbtx's column types as `dbtx.store.types.UTCDateTime(...)`
@@ -64,6 +65,14 @@ This page is for contributors who change the store's models.
      `SqliteAdapter` turns `PRAGMA foreign_keys` on for every connection: a batch
      rebuild of a table that other tables reference can fail. Run the migration tests
      on SQLite.
+   - **Altering an existing table on Postgres:** Alembic's `ALTER TABLE` statements
+     (`add_column`, `drop_column`, ...) do not go through the engine's
+     `schema_translate_map`, so they would look for the table in the default schema.
+     Name the schema: `op.batch_alter_table("name", schema=store_schema())`, with
+     `store_schema()` returning `op.get_context().version_table_schema` (DB_SCHEMA;
+     None on SQLite). `0002` shows it. `create_table` / `create_index` do not need it.
+   - **New columns go last** in the model and the spec: a migrated table appends them,
+     and the parity test checks the column order against the spec.
    - **Data changes:** use lightweight `sa.table()` / `sa.column()` constructs, never
      the ORM models, which describe the newest schema, not the one at this revision.
    - **`downgrade()`** undoes `upgrade()`, in reverse order.
@@ -85,6 +94,7 @@ This page is for contributors who change the store's models.
   (`create_tables_at_head`): much faster than migrating for every test, and
   `test_store_migrations.py` proves the two give the same schema. `create_all`
   appears nowhere outside test fixtures.
-- `extra_revision` copies the migrations to `tmp_path`, adds an empty `0002` and
+- `extra_revision` copies the migrations to `tmp_path`, adds an empty revision after
+  the real head (`0003` while the head is `0002`) and
   points `migrate.SCRIPT_LOCATION` at the copy. With it, a database at the real head
-  is "behind", so the upgrade paths are testable while only one revision exists.
+  is "behind", so the path from the previous head to a new one is always testable.

@@ -57,7 +57,7 @@ the same backend. The base class has three kinds of member:
 
 | Kind | Members | Why it is this kind |
 |---|---|---|
-| **Class attributes** | `dialect`, `display_name`, `driver` (one or a list), `driver_package` (one or a dict per driver), `driver_hint`, `install_hint`, `supports_schemas`, `upgrades_automatically` (default `False`), `minimum_server_version`, `minimum_server_reason` | Facts about the adapter. The registry and config validation read them from the **class**, without creating an instance or importing a driver |
+| **Class attributes** | `dialect`, `display_name`, `driver` (one or a list), `driver_package` (one or a dict per driver), `driver_hint`, `install_hint`, `supports_schemas`, `minimum_server_version`, `minimum_server_reason` | Facts about the adapter. The registry and config validation read them from the **class**, without creating an instance or importing a driver |
 | **Abstract methods** | `create_engine`, `on_connect`, `server_version`, `insert`, `greatest`, `least`, `claim_next_job` | Behaviour with no sensible shared default. Every backend has to decide |
 | **Concrete methods** | `check_server`, `upsert`, `json_type`, `database_file` | One correct implementation that works for most backends (`check_server`, `upsert`), or a default that a backend may improve on (`json_type`, `database_file`) |
 
@@ -122,7 +122,7 @@ Who uses it, and what they need:
 | `config.validate_db_schema` | the class | `DB_SCHEMA` refused when the resolved adapter doesn't `supports_schemas` |
 | `DbtxConfig.resolved_adapter()` (`dbtx config`) | name and class | shows `DB_ADAPTER  <name>  [default for <backend>+<driver>]` or `[<source>]` |
 | `open_store` | an instance | `get_adapter(uri, DB_ADAPTER)`, `create_engine`, then `attach_adapter` |
-| `startup.check_database` | the store's instance | `adapter.check_server(connection)`; migrates a SQLite store behind head when `upgrades_automatically` |
+| `startup.check_database` | the store's instance | `adapter.check_server(connection)`; never migrates (only `dbtx db init` / `upgrade` do) |
 | `dbtx db init` / `status` | the store's instance | `supports_schemas` (create `DB_SCHEMA`), `database_file` (report a missing file, local-file warnings) |
 | repositories | the store's instance | `upsert`, `claim_next_job`, `insert`, `least` / `greatest` |
 
@@ -365,9 +365,14 @@ level. `config.py` likewise imports the registry inside its functions, which kee
 - **Why:** with names as identity, dbtx would otherwise use whichever the environment
   happened to list first. Refusing is the only predictable option.
 
-### AD14: Migration behaviour is declared by the adapter (Phase 3)
+### AD14: Migration behaviour is declared by the adapter (Phase 3; partly superseded)
 
-- **Decision:** two concrete members with defaults (AD9): `upgrades_automatically`
+> **Superseded in part (after Phase 6):** `upgrades_automatically` was removed. The user
+> decided that upgrading the schema must be deliberate on every backend: only `dbtx db
+> init` / `dbtx db upgrade` change it, SQLite included, so there is nothing left for an
+> adapter to declare. `database_file(uri)` stays as described.
+
+- **Decision (Phase 3):** two concrete members with defaults (AD9): `upgrades_automatically`
   (class attribute, `False`; SQLite `True`) and `database_file(uri)` (`None`; SQLite
   returns the file). The start-up checks and `dbtx db status` read them instead of
   branching on the dialect (AD1).

@@ -708,6 +708,34 @@
    },
    "batch_results": null,
    "compiled": true,
+   "compiled_code": "select * from \"jaffle_shop\".\"main\".\"raw_stores\"",
+   "execution_time": 60.0,
+   "failures": null,
+   "message": "OK",
+   "overload_results": null,
+   "relation_name": "\"jaffle_shop\".\"main\".\"stores_snapshot\"",
+   "status": "success",
+   "thread_id": "Thread-1 (worker)",
+   "timing": [
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "compile",
+     "started_at": "2026-01-01T00:01:00Z"
+    },
+    {
+     "completed_at": "2026-01-01T00:02:00Z",
+     "name": "execute",
+     "started_at": "2026-01-01T00:01:00Z"
+    }
+   ],
+   "unique_id": "snapshot.jaffle_shop.stores_snapshot"
+  },
+  {
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "batch_results": null,
+   "compiled": true,
    "compiled_code": "\n    \n    \n\nwith all_values as (\n\n    select\n        customer_type as value_field,\n        count(*) as n_records\n\n    from \"jaffle_shop\".\"main\".\"customers\"\n    group by customer_type\n\n)\n\nselect *\nfrom all_values\nwhere value_field not in (\n    'prospect','new','returning'\n)\n\n\n",
    "execution_time": 60.0,
    "failures": 0,

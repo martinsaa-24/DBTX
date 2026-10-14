@@ -13,10 +13,12 @@ Checks, in order; each failure exits 2 with a message and dbt is never started:
 3. the database's migration revision against this dbtx's head (plan Phase 3):
    * at head → continue
    * a revision this dbtx does not know (migrated by a newer dbtx) → exit 2
-   * no revision, or an older one: an adapter that `upgrades_automatically` (SQLite, a
-     local file dbtx owns) is upgraded, with a warning saying so, and the run
-     continues; any other (Postgres) → exit 2 with `run dbtx db init` (no revision) or
-     `run dbtx db upgrade` (older)
+   * a SQLite file that does not exist → exit 2 with `run dbtx db init`, without creating
+     it (dbtx checks the file before connecting; in-memory SQLite has no file and is
+     checked over its connection)
+   * no revision → exit 2 with `run dbtx db init`; an older one → exit 2 with `run dbtx
+     db upgrade`. On every backend, SQLite included: schema changes are deliberate, and
+     no adapter can opt into upgrading at start-up
    `dbtx db init` and `dbtx db upgrade` skip this check, since fixing it is their job
 4. guard G2, for a command with a project: the project folder claims its dbt project
    name, or confirms its claim. Another folder's claim → exit 2. Warnings from the
@@ -46,13 +48,14 @@ from dbtx import cli
 from dbtx.config import DbtxConfig
 from dbtx.store import Store, migrate
 from dbtx.store import models as m
+from dbtx.store.errors import StoreError
 from tests.unit.conftest import FakeDbtRunner, LayoutBuilder
 
 from .conftest import (
     CLOCK_START,
-    ON_POSTGRES,
     ON_SQLITE_FILE,
     ON_SQLITE_FILE_AND_POSTGRES,
+    ON_SQLITE_MEMORY,
     TEST_HOST,
     FakeClock,
     store_config,
@@ -321,33 +324,18 @@ def test_g1_collision_from_the_folder_without_the_claim_is_refused(
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE, indirect=True)
-def test_an_uninitialised_sqlite_store_is_created_and_the_run_continues(
+@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
+def test_an_uninitialised_store_stops_the_run(
     empty_store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.chdir(platform)
-    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(empty_store)]) == 0
-    assert len(fake_dbt.calls) == 1
-    assert (
-        f"dbtx: warning: created dbtx's tables in {empty_store.masked_uri()} (revision 0001)"
-        in capsys.readouterr().err
-    )
-    assert revision(empty_store).state == "current"
-    assert claims(empty_store) == [("jaffle_shop", "jaffle-shop", CLOCK_START, TEST_HOST, CLOCK_START)]
-
-
-@pytest.mark.parametrize("empty_store", ON_POSTGRES, indirect=True)
-def test_an_uninitialised_postgres_store_stops_the_run(
-    empty_store: Store,
-    platform: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    fake_dbt: type[FakeDbtRunner],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+    # Schema changes are deliberate: only `dbtx db init` creates the tables, SQLite too.
+    # (SQLite: an existing but empty file, e.g. one an older dbtx left behind.)
+    with empty_store.engine.connect():
+        pass
     monkeypatch.chdir(platform)
     assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(empty_store)]) == 2
     assert fake_dbt.calls == []
@@ -358,28 +346,39 @@ def test_an_uninitialised_postgres_store_stops_the_run(
     assert revision(empty_store).state == "uninitialised"
 
 
-@pytest.mark.parametrize("store", ON_SQLITE_FILE, indirect=True)
-def test_a_sqlite_store_behind_head_is_upgraded_and_the_run_continues(
-    store: Store,
-    extra_revision: str,
+@pytest.mark.parametrize("command", [["run", "--project-dir", "jaffle-shop"], ["db", "projects"]])
+def test_a_missing_sqlite_file_stops_the_run_without_creating_it(
     platform: Path,
+    layout: LayoutBuilder,
     monkeypatch: pytest.MonkeyPatch,
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
+    command: list[str],
 ) -> None:
-    set_revision(store, "0001")
+    database = layout.directory("stores") / "new.db"
     monkeypatch.chdir(platform)
-    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(store)]) == 0
-    assert len(fake_dbt.calls) == 1
-    assert (
-        f"dbtx: warning: upgraded {store.masked_uri()} from revision 0001 to 0002"
-        in capsys.readouterr().err
+    assert cli.main([*command, "--db-uri", f"sqlite:///{database}"]) == 2
+    assert fake_dbt.calls == []
+    assert capsys.readouterr().err.endswith(
+        f"dbtx: the database file {database} does not exist; run `dbtx db init` to create it\n"
     )
-    assert revision(store).current == "0002"
+    assert not database.exists()
 
 
-@pytest.mark.parametrize("store", ON_POSTGRES, indirect=True)
-def test_a_postgres_store_behind_head_stops_the_run(
+@pytest.mark.parametrize("store", ON_SQLITE_MEMORY, indirect=True)
+def test_an_in_memory_sqlite_store_is_not_a_missing_file(store: Store) -> None:
+    # No file to look for: the database is checked over its connection, as before.
+    assert startup.check_database(store, "run") == []
+
+
+@pytest.mark.parametrize("empty_store", ON_SQLITE_MEMORY, indirect=True)
+def test_an_empty_in_memory_sqlite_store_has_no_tables(empty_store: Store) -> None:
+    with pytest.raises(StoreError, match="has no dbtx tables; run `dbtx db init`"):
+        startup.check_database(empty_store, "run")
+
+
+@pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
+def test_a_store_behind_head_stops_the_run(
     store: Store,
     extra_revision: str,
     platform: Path,
@@ -387,16 +386,36 @@ def test_a_postgres_store_behind_head_stops_the_run(
     fake_dbt: type[FakeDbtRunner],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    set_revision(store, "0001")
+    # Only `dbtx db upgrade` upgrades, SQLite too.
+    set_revision(store, "0002")
     monkeypatch.chdir(platform)
     assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(store)]) == 2
     assert fake_dbt.calls == []
     assert (
-        f"dbtx: the database {store.masked_uri()} is at revision 0001, behind this dbtx's "
-        f"0002; run `dbtx db upgrade`"
+        f"dbtx: the database {store.masked_uri()} is at revision 0002, behind this dbtx's "
+        f"0003; run `dbtx db upgrade`"
     ) in capsys.readouterr().err
-    assert revision(store).current == "0001"
+    assert revision(store).current == "0002"
     assert claims(store) == []
+
+
+@pytest.mark.parametrize("store", ON_SQLITE_FILE, indirect=True)
+def test_no_adapter_can_opt_into_upgrading_at_start_up(
+    store: Store,
+    extra_revision: str,
+    platform: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_dbt: type[FakeDbtRunner],
+) -> None:
+    # The former `upgrades_automatically` switch is gone: an adapter (a plugin built for
+    # an older dbtx) that still sets it is not migrated by a run.
+    from dbtx.store.adapters import SqliteAdapter
+
+    monkeypatch.setattr(SqliteAdapter, "upgrades_automatically", True, raising=False)
+    set_revision(store, "0002")
+    monkeypatch.chdir(platform)
+    assert cli.main(["run", "--project-dir", "jaffle-shop", *db_flags(store)]) == 2
+    assert revision(store).current == "0002"
 
 
 @pytest.mark.parametrize("store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
@@ -413,7 +432,7 @@ def test_a_revision_this_dbtx_does_not_know_stops_the_run(
     assert fake_dbt.calls == []
     assert (
         f"dbtx: the database {store.masked_uri()} is at revision 'ffff', which this dbtx "
-        f"does not know (head is '0001'); it was migrated by a newer dbtx"
+        f"does not know (head is '0002'); it was migrated by a newer dbtx"
     ) in capsys.readouterr().err
     assert revision(store).current == "ffff"
 

@@ -13,6 +13,9 @@ DEFAULT_HISTORY_LIMIT: int = 3
 # the only dbt artifact that records an invocation's vars at all -- manifest.json
 # carries no args -- so it is the sole place a job id can be recovered from.
 DEFAULT_JOB_ID_VAR: str = "job_id"
+# dbtx's own job id: in run_results `metadata.env` (platform mode, handed to dbt as
+# DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID) or `--vars` (standalone).
+DBTX_JOB_ID: str = "DBTX_JOB_ID"
 
 
 class NodeTypes(str, Enum):
@@ -185,11 +188,14 @@ class PatchTally:
 def read_job_id(rr_data: dict, job_id_var: str = DEFAULT_JOB_ID_VAR) -> Optional[str]:
     """The job id an invocation was launched with, read from its run results.
 
-    dbt copies the resolved command line into run_results' top-level `args`
-    verbatim, whether or not the project reads the var, which is what makes a
-    job id recoverable after the fact. `metadata.env` is consulted as a fallback
-    so projects that tag invocations with `DBT_ENV_CUSTOM_ENV_<var>` instead of
-    `--vars` land in the same field.
+    First dbtx's own `DBTX_JOB_ID`: in platform mode dbtx hands every dbt invocation
+    `DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID`, which dbt records as `metadata.env.DBTX_JOB_ID`;
+    in standalone mode a user may pass `--vars '{DBTX_JOB_ID: ...}'`. Then the legacy
+    `job_id_var`: dbt copies the resolved command line into run_results' top-level
+    `args` verbatim, whether or not the project reads the var, which is what makes a
+    job id recoverable after the fact. `metadata.env` is consulted as a fallback so
+    projects that tag invocations with `DBT_ENV_CUSTOM_ENV_<var>` instead of `--vars`
+    land in the same field.
     """
     raw: Any = (rr_data.get('args') or {}).get('vars')
     if isinstance(raw, str):
@@ -199,10 +205,14 @@ def read_job_id(rr_data: dict, job_id_var: str = DEFAULT_JOB_ID_VAR) -> Optional
             raw = yaml.safe_load(raw)
         except yaml.YAMLError:
             raw = None
+    env = (rr_data.get('metadata') or {}).get('env')
 
-    for source in (raw, (rr_data.get('metadata') or {}).get('env')):
+    # In order: DBTX_JOB_ID from the environment dbtx set, then from vars; then the
+    # legacy var from vars, then from the environment.
+    lookups = [(env, DBTX_JOB_ID), (raw, DBTX_JOB_ID), (raw, job_id_var), (env, job_id_var)]
+    for source, key in lookups:
         if isinstance(source, dict):
-            value = source.get(job_id_var)
+            value = source.get(key)
             if value is not None and value != "":
                 return str(value)
     return None

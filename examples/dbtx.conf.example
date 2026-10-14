@@ -24,3 +24,8 @@ DB_URI=sqlite:///.dbtx/dbtx.db
 # driver, which is the built-in for SQLite and Postgres. Set it to use an installed
 # adapter plugin instead; it must support DB_URI's database and driver.
 # DB_ADAPTER=sqlite
+
+# Required: the root of the run folders. Every run (build, run, test, ...) writes its
+# artifacts and log to its own folder, <root>/<project>/<date>/<hour>/<job id>/ (UTC).
+# A relative path is relative to this file's directory.
+LOG_ROOT_LOCATION=.dbtx/logs

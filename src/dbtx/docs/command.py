@@ -87,7 +87,7 @@ def _patch(args: List[str]) -> int:
 
     print(f"dbtx docs: {result.tally}")
     print(f"  job {result.job_id}" if result.job_id
-          else f"  no job id (run passed no {job_id_var or DEFAULT_JOB_ID_VAR!r} var)")
+          else f"  no job id (the run has no DBTX_JOB_ID and no {job_id_var or DEFAULT_JOB_ID_VAR!r} var)")
     print(f"  carried forward {result.hydrated} node(s) from previous runs")
     print(f"  history limit {result.history_limit}, wrote {_rel(result.sidecar_file)}")
     print(f"  {result.reports_found} rendered exposure report(s) in "

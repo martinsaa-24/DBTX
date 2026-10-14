@@ -4,10 +4,10 @@ Tracks progress against [orm_implementation_plan.md](orm_implementation_plan.md)
 sections 4, 6.4 (`DB_SCHEMA`), 6.5.4 (guard G2), 6.6 step 8 and "Phase 2". If a session
 is interrupted, resume from the first unchecked item. Update this file after every step.
 
-**Branch:** `feature/db-backend`, on top of `9e04997` (Phase 1 commit). Nothing
-committed for Phase 2 (the user has not asked for a commit).
+**Branch:** `feature/db-backend`, on top of `9e04997` (Phase 1 commit). Phase 2 is
+committed in `02fc5d9`.
 
-**Phase 2 complete (2026-10-11).** Not committed.
+**Phase 2 complete (2026-10-11).** Committed in `02fc5d9`.
 Files touched: `src/dbtx/config.py`, `src/dbtx/cli.py`, `src/dbtx/store/` (`__init__.py` now holds `Store` / `open_store`; new: `errors.py`, `clock.py`, `startup.py`, `cli.py`, `adapters/{__init__,base,sqlite,postgres}.py`, `repositories/{__init__,projects}.py`), `tests/unit/conftest.py`, `tests/unit/fake_store_adapters.py` (new), `tests/unit/test_config.py`, `tests/unit/test_config_file.py`, `tests/unit/test_cli_config.py`, `tests/unit/store/conftest.py`, nine new `tests/unit/store/test_store_*.py`, three new `tests/fixtures/config/*.conf`, `README.md`, `examples/dbtx.conf.example`, `docs/contributing/tests.md`, `docs/agentic/orm_implementation_plan.md`, `docs/agentic/phase2_state.md`.
 
 **Style rules from the user:** simple, verbose code (repetition is fine where it avoids

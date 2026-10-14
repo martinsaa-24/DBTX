@@ -31,6 +31,8 @@ VALUE_COLUMNS = [
     "failures",
     "rows_affected",
     "adapter_response",
+    "compiled_code",
+    "relation_name",
 ]
 
 

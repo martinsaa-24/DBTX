@@ -33,14 +33,12 @@ import sqlalchemy as sa
 import dbtx.store.cli as store_cli
 from dbtx import cli
 from dbtx.config import DbtxConfig
-from dbtx.store import Store
+from dbtx.store import Store, migrate
 from dbtx.store import models as m
 from tests.unit.conftest import FakeDbtRunner, LayoutBuilder
 
 from .conftest import (
     CLOCK_START,
-    ON_POSTGRES,
-    ON_SQLITE_FILE,
     ON_SQLITE_FILE_AND_POSTGRES,
     TEST_HOST,
     FakeClock,
@@ -188,30 +186,22 @@ def test_needs_a_db_uri(
     assert opened_stores == []
 
 
-@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE, indirect=True)
-def test_creates_the_tables_of_an_uninitialised_sqlite_store(
+@pytest.mark.parametrize("empty_store", ON_SQLITE_FILE_AND_POSTGRES, indirect=True)
+def test_needs_an_initialised_store(
     empty_store: Store,
     platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.chdir(platform)
-    assert cli.main(["db", "projects", *db_flags(empty_store)]) == 0
-    captured = capsys.readouterr()
-    assert f"dbtx: warning: created dbtx's tables in {empty_store.masked_uri()} (revision 0001)" in captured.err
-    assert captured.out == "no project names are claimed in this database\n"
-
-
-@pytest.mark.parametrize("empty_store", ON_POSTGRES, indirect=True)
-def test_needs_an_initialised_postgres_store(
-    empty_store: Store,
-    platform: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+    # SQLite too: only `dbtx db init` creates the tables. (SQLite: an existing but empty
+    # file; a missing file is refused before connecting, test_store_startup.py.)
+    with empty_store.engine.connect():
+        pass
     monkeypatch.chdir(platform)
     assert cli.main(["db", "projects", *db_flags(empty_store)]) == 2
     assert "has no dbtx tables; run `dbtx db init`" in capsys.readouterr().err
+    with empty_store.engine.connect() as connection:
+        assert migrate.revision_status(connection, empty_store.schema).state == "uninitialised"
 
 
 def test_an_unreachable_server_is_reported(
@@ -228,12 +218,12 @@ def test_an_unreachable_server_is_reported(
 
 
 def test_an_unknown_word_is_a_usage_error(
-    platform: Path,
+    initialised_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     opened_stores: list[str],
 ) -> None:
-    monkeypatch.chdir(platform)
+    monkeypatch.chdir(initialised_platform)
     assert cli.main(["db", "projects", "remove", "jaffle_shop"]) == 2
     assert USAGE in capsys.readouterr().err
     assert opened_stores == []
@@ -377,13 +367,13 @@ def test_rebind_to_the_owner_changes_nothing(
     ],
 )
 def test_rebind_usage_errors(
-    platform: Path,
+    initialised_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     opened_stores: list[str],
     args: list[str],
 ) -> None:
-    monkeypatch.chdir(platform)
+    monkeypatch.chdir(initialised_platform)
     assert cli.main(["db", "projects", *args]) == 2
     assert USAGE in capsys.readouterr().err
     assert opened_stores == []
@@ -391,13 +381,13 @@ def test_rebind_usage_errors(
 
 @pytest.mark.parametrize("folder", ["a/b", "../jaffle-shop", "..", ".", "/srv/dbtx/jaffle-shop"])
 def test_rebind_needs_a_folder_name_not_a_path(
-    platform: Path,
+    initialised_platform: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     opened_stores: list[str],
     folder: str,
 ) -> None:
-    monkeypatch.chdir(platform)
+    monkeypatch.chdir(initialised_platform)
     assert cli.main(["db", "projects", "rebind", "jaffle_shop", "--folder", folder]) == 2
     assert (
         f"dbtx: --folder {folder!r} is not a folder name; give the project folder's name "

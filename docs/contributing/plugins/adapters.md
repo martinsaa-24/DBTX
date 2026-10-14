@@ -125,9 +125,13 @@ looks the way it does, see [the adapter architecture](../architecture/adapters.m
 | `driver_hint` | `str` | Shown when the driver is wrong: what to write in `DB_URI` instead, e.g. `"duckdb+duckdb_engine://"` |
 | `install_hint` | `str` | Shown when a driver package is missing, e.g. `"pip install dbtx-duckdb"` |
 | `supports_schemas` | `bool` | Whether `DB_SCHEMA` applies. If `False`, setting `DB_SCHEMA` explicitly is a config error, and `create_engine` receives `schema=None`. If `True`, `dbtx db init` creates `DB_SCHEMA` when it is missing |
-| `upgrades_automatically` | `bool`, default `False` | Whether the start-up checks migrate a database that has no tables or is behind, instead of refusing to run. `True` only for a local database dbtx owns (SQLite); a shared server is changed only by `dbtx db init` / `upgrade` |
 | `minimum_server_version` | `tuple[int, ...]` | The oldest server version that works. `check_server` refuses older ones at start-up |
 | `minimum_server_reason` | `str` | Why that version, shown in the refusal ("RETURNING needs 3.35") |
+
+There is no switch for migrating at start-up: only `dbtx db init` and `dbtx db upgrade`
+change the schema, whatever the backend. (Earlier dbtx versions had an
+`upgrades_automatically` attribute; it is gone, and an adapter that still sets it is not
+migrated.)
 
 ### Abstract methods
 

@@ -1,8 +1,8 @@
 """Migrations (`dbtx.store.migrate`, `dbtx/store/migrations/`): plan D4 and Phase 3.
 
 Behaviour:
-* Alembic runs programmatically, from the package: no `alembic.ini`. The head is the
-  initial revision, `0001`
+* Alembic runs programmatically, from the package: no `alembic.ini`. The head is `0002`
+  (spec v3), after the initial revision `0001`
 * `revision_status(connection, schema)`: the database's revision against head, as one
   of `uninitialised` (no revision), `current` (at head), `behind` (an older revision
   dbtx knows) or `unknown` (a revision dbtx does not know: migrated by a newer dbtx)
@@ -10,13 +10,16 @@ Behaviour:
   an empty database it creates exactly the models' schema (`compare_metadata` finds
   no difference) with the models' constraint and index names. Upgrading again changes
   nothing; upgrading from an unknown revision is a StoreError
+* `0002` adds `invocation.run_folder`, `node_result.compiled_code` and
+  `node_result.relation_name` to a database at `0001`, keeping its rows (the new columns
+  NULL); downgrading to `0001` removes them again
 * downgrading to base removes every dbtx table
 * on Postgres every table, and Alembic's version table, lives in DB_SCHEMA
 * the JSON columns use the serving adapter's `json_type()`, a DB_ADAPTER plugin's too
 * the `store` fixture (create_all) is at head, like a migrated database
 
 A revision after head comes from the `extra_revision` fixture (a copy of the migrations
-plus an empty `0002`), so "behind head" is testable while only `0001` exists.
+plus an empty `0003`), so "behind head" is testable while only `0002` exists.
 """
 
 from __future__ import annotations
@@ -110,12 +113,12 @@ def model_names() -> set[tuple[str, str, str]]:
 # --------------------------------------------------------------------------------------
 
 
-def test_head_is_the_initial_revision() -> None:
-    assert migrate.head_revision() == "0001"
+def test_head_is_the_v3_revision() -> None:
+    assert migrate.head_revision() == "0002"
 
 
 def test_the_extra_revision_fixture_moves_head(extra_revision: str) -> None:
-    assert migrate.head_revision() == extra_revision == "0002"
+    assert migrate.head_revision() == extra_revision == "0003"
 
 
 # --------------------------------------------------------------------------------------
@@ -124,24 +127,24 @@ def test_the_extra_revision_fixture_moves_head(extra_revision: str) -> None:
 
 
 def test_an_empty_database_is_uninitialised(empty_store: Store) -> None:
-    assert status(empty_store) == migrate.RevisionStatus(current=None, head="0001", state="uninitialised")
+    assert status(empty_store) == migrate.RevisionStatus(current=None, head="0002", state="uninitialised")
 
 
 def test_an_upgraded_database_is_current(empty_store: Store) -> None:
     migrate.upgrade(empty_store)
-    assert status(empty_store) == migrate.RevisionStatus(current="0001", head="0001", state="current")
+    assert status(empty_store) == migrate.RevisionStatus(current="0002", head="0002", state="current")
 
 
 def test_the_store_fixture_is_at_head(store: Store) -> None:
     # `store` builds its tables with create_all (fast), and records head, so the
     # start-up checks see a current database. test_upgrade_creates_exactly_the_models_schema
     # proves the migrations build the same schema.
-    assert status(store) == migrate.RevisionStatus(current="0001", head="0001", state="current")
+    assert status(store) == migrate.RevisionStatus(current="0002", head="0002", state="current")
 
 
 def test_a_database_at_an_older_revision_is_behind(empty_store: Store, extra_revision: str) -> None:
-    migrate_to(empty_store, "0001")
-    assert status(empty_store) == migrate.RevisionStatus(current="0001", head="0002", state="behind")
+    migrate_to(empty_store, "0002")
+    assert status(empty_store) == migrate.RevisionStatus(current="0002", head="0003", state="behind")
 
 
 def test_a_revision_dbtx_does_not_know_is_unknown(empty_store: Store) -> None:
@@ -149,7 +152,7 @@ def test_a_revision_dbtx_does_not_know_is_unknown(empty_store: Store) -> None:
     with empty_store.engine.begin() as connection:
         version_table = sa.table("alembic_version", sa.column("version_num"), schema=empty_store.schema)
         connection.execute(sa.update(version_table).values(version_num="ffff"))
-    assert status(empty_store) == migrate.RevisionStatus(current="ffff", head="0001", state="unknown")
+    assert status(empty_store) == migrate.RevisionStatus(current="ffff", head="0002", state="unknown")
 
 
 # --------------------------------------------------------------------------------------
@@ -158,7 +161,7 @@ def test_a_revision_dbtx_does_not_know_is_unknown(empty_store: Store) -> None:
 
 
 def test_upgrade_creates_exactly_the_models_schema(empty_store: Store) -> None:
-    assert migrate.upgrade(empty_store) == (None, "0001")
+    assert migrate.upgrade(empty_store) == (None, "0002")
     assert model_differences(empty_store) == []
     assert table_names(empty_store) == sorted(MODEL_TABLES + ["alembic_version"])
 
@@ -170,13 +173,13 @@ def test_upgrade_uses_the_models_constraint_and_index_names(empty_store: Store) 
 
 def test_upgrade_again_changes_nothing(empty_store: Store) -> None:
     migrate.upgrade(empty_store)
-    assert migrate.upgrade(empty_store) == ("0001", "0001")
+    assert migrate.upgrade(empty_store) == ("0002", "0002")
     assert model_differences(empty_store) == []
 
 
 def test_upgrade_from_behind_reaches_head(empty_store: Store, extra_revision: str) -> None:
-    migrate_to(empty_store, "0001")
-    assert migrate.upgrade(empty_store) == ("0001", "0002")
+    migrate_to(empty_store, "0002")
+    assert migrate.upgrade(empty_store) == ("0002", "0003")
     assert status(empty_store).state == "current"
 
 
@@ -189,8 +192,50 @@ def test_upgrade_from_an_unknown_revision_is_an_error(empty_store: Store) -> Non
         migrate.upgrade(empty_store)
     assert str(info.value) == (
         f"the database {empty_store.masked_uri()} is at revision 'ffff', which this dbtx "
-        f"does not know (head is '0001'); it was migrated by a newer dbtx"
+        f"does not know (head is '0002'); it was migrated by a newer dbtx"
     )
+
+
+def column_names(store: Store, table: str) -> list[str]:
+    with store.engine.connect() as connection:
+        return [column["name"] for column in sa.inspect(connection).get_columns(table, schema=store.schema)]
+
+
+NEW_IN_0002 = {"invocation": ["run_folder"], "node_result": ["compiled_code", "relation_name"]}
+
+
+def test_0002_adds_the_v3_columns_and_keeps_the_rows(empty_store: Store) -> None:
+    migrate_to(empty_store, "0001")
+    for table, columns in NEW_IN_0002.items():
+        for column in columns:
+            assert column not in column_names(empty_store, table)
+    project = sa.table("project", sa.column("project"), sa.column("folder"), sa.column("claimed_at"),
+                       sa.column("last_seen_at"), schema=empty_store.schema)
+    with empty_store.engine.begin() as connection:
+        connection.execute(sa.insert(project).values(
+            project="jaffle_shop", folder="jaffle-shop", claimed_at="2026-10-01 00:00:00.000000",
+            last_seen_at="2026-10-01 00:00:00.000000"))
+
+    assert migrate.upgrade(empty_store) == ("0001", "0002")
+    for table, columns in NEW_IN_0002.items():
+        assert column_names(empty_store, table)[-len(columns):] == columns
+    assert model_differences(empty_store) == []
+    with empty_store.session() as session:
+        assert session.get(m.Project, "jaffle_shop").folder == "jaffle-shop"
+
+
+def test_downgrading_0002_removes_the_v3_columns(empty_store: Store) -> None:
+    migrate.upgrade(empty_store)
+    migrate_to_downgrade(empty_store, "0001")
+    for table, columns in NEW_IN_0002.items():
+        for column in columns:
+            assert column not in column_names(empty_store, table)
+    assert status(empty_store) == migrate.RevisionStatus(current="0001", head="0002", state="behind")
+
+
+def migrate_to_downgrade(store: Store, revision: str) -> None:
+    with store.engine.begin() as connection:
+        command.downgrade(migrate.alembic_config(connection, store.schema), revision)
 
 
 def test_downgrade_to_base_removes_every_table(empty_store: Store) -> None:

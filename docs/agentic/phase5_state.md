@@ -5,7 +5,11 @@ sections D5, 5.2–5.5, 5.7 (the recorder), 6.5.1 / 6.6 (rollout flag) and "Phas
 session is interrupted, resume from the first unchecked item. Update this file after
 every step.
 
-**Phase 5 complete (2026-10-11).** Not committed.
+**Phase 5 complete (2026-10-11).** Committed in `5eacb79`.
+
+**Superseded later (Phase 6, step 11):** step 8 below records a first run creating the
+SQLite store; since then only `dbtx db init` / `dbtx db upgrade` change the schema, on
+every backend (see [phase6_state.md](phase6_state.md)).
 
 **Branch:** `feature/db-backend`, on top of `3eea72e` (the Phase 4 commit). Already in the
 working tree when Phase 5 started, **not part of this phase** and left as found: changes

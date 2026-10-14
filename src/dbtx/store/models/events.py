@@ -74,6 +74,8 @@ class Invocation(Base):
     run_by: Mapped[str | None] = mapped_column(sa.String(), nullable=True)
     host: Mapped[str | None] = mapped_column(sa.String(), nullable=True)
     error_message: Mapped[str | None] = mapped_column(sa.String(), nullable=True)
+    # The run's folder under LOG_ROOT_LOCATION (spec v3); None for `dbtx db load`.
+    run_folder: Mapped[str | None] = mapped_column(sa.String(), nullable=True)
 
     # Read-only navigation (plan 3.4): never cascades writes; load with selectinload.
     job: Mapped[Job | None] = relationship("Job", viewonly=True, lazy="raise")

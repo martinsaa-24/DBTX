@@ -1,8 +1,9 @@
-"""The run history store, end to end (plan Phase 5): real dbt runs of the example
-project on a platform whose `dbtx.conf` sets `DB_URI=sqlite:///.dbtx/dbtx.db`.
+"""The run history store and isolated runs, end to end (plan Phases 5 and 6): real dbt
+runs of the example project on a platform whose `dbtx.conf` sets
+`DB_URI=sqlite:///.dbtx/dbtx.db` and `LOG_ROOT_LOCATION=.dbtx/logs`.
 
 Each test asserts what the store holds after `dbtx` returns, against the artifacts dbt
-wrote for the same run. The dbt internals the recorder depends on (plan risk table:
+wrote for the same run (in the run's own folder, which the store records). The dbt internals the recorder depends on (plan risk table:
 `MainReportVersion` first, `ConcurrencyLine.target_name`, the artifact serialisers,
 the manifest rewritten at the end of the build) are all checked here, so a dbt upgrade
 that breaks one fails this file rather than storing wrong data.
@@ -15,6 +16,7 @@ import json
 import re
 import shutil
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,7 @@ from sqlalchemy.orm import Session
 from dbtx.cli import main
 from dbtx.store import models as m
 from dbtx.store import recorder
+from dbtx.store.loaders.run_results import parse_timestamp
 from tests.live.conftest import NO_SEEDS, Project, chdir, copy_project
 
 REPORTS = {
@@ -67,17 +70,29 @@ class PlatformProject:
         with self.session() as session:
             return sorted(tuple(str(v) for v in row) for row in session.execute(sa.select(model.__table__)))
 
+    def run_folder(self) -> Path:
+        """The latest recorded run's folder."""
+        latest = self.invocations()[-1]
+        assert latest.run_folder is not None
+        return Path(latest.run_folder)
+
     def artifact(self, name: str) -> dict[str, Any]:
-        return json.loads((self.target / name).read_text(encoding="utf-8"))
+        """An artifact of the latest recorded run, from its run folder."""
+        return json.loads((self.run_folder() / name).read_text(encoding="utf-8"))
 
 
 @pytest.fixture
 def platform(built_project: Project, tmp_path: Path) -> Iterator[PlatformProject]:
     root = tmp_path / "platform"
     root.mkdir()
-    (root / "dbtx.conf").write_text("DB_URI=sqlite:///.dbtx/dbtx.db\n", encoding="utf-8")
+    (root / "dbtx.conf").write_text(
+        "DB_URI=sqlite:///.dbtx/dbtx.db\nLOG_ROOT_LOCATION=.dbtx/logs\n", encoding="utf-8"
+    )
     project = copy_project(built_project.root, root / "jaffle-shop")
     project.clear_reports()
+    # Once, as a user does: only `dbtx db init` / `upgrade` change the schema.
+    with chdir(root):
+        assert main(["db", "init"]) == 0
     made = PlatformProject(root, project)
     yield made
     made.engine.dispose()
@@ -105,7 +120,10 @@ def test_a_build_is_recorded(platform: PlatformProject, capsys: pytest.CaptureFi
     assert invocation.target == "dev"  # no --target given: dbt's resolved target
     assert invocation.adapter_type == "duckdb"
     assert invocation.args == run_results["args"]
-    assert invocation.manifest_hash == hashlib.sha256((platform.target / "manifest.json").read_bytes()).hexdigest()
+    run_folder = platform.run_folder()
+    assert invocation.manifest_hash == hashlib.sha256((run_folder / "manifest.json").read_bytes()).hexdigest()
+    # dbt's own start time, exactly as dbt writes it to run_results.json.
+    assert invocation.start_time == parse_timestamp(run_results["metadata"]["invocation_started_at"])
     assert invocation.start_time < invocation.end_time
     assert invocation.run_by is not None and invocation.host is not None
 
@@ -128,7 +146,63 @@ def test_a_build_is_recorded(platform: PlatformProject, capsys: pytest.CaptureFi
         assert set(render.paths) <= {"html", "csv"} and "html" in render.paths
         for path in render.paths.values():
             assert Path(path).is_file()
+            assert Path(path).parent == run_folder / "reports"
     assert claim.folder == "jaffle-shop"
+
+
+def test_a_run_has_its_own_folder_and_job_id(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    before = datetime.now(timezone.utc)
+    assert platform.dbtx("build", "-s", "+exposure:top_customers", *NO_SEEDS) == 0
+    capsys.readouterr()
+    [invocation] = platform.invocations()
+    run_folder = platform.run_folder()
+
+    # <LOG_ROOT_LOCATION>/<project>/<date>/<hour>/<job id>, the job id generated.
+    assert run_folder.parent.parent.parent.parent == platform.root / ".dbtx" / "logs"
+    assert run_folder.parent.parent.parent.name == "jaffle_shop"
+    assert run_folder.parent.parent.name == before.strftime("%Y-%m-%d")
+    assert run_folder.parent.name in (before.strftime("%H"), datetime.now(timezone.utc).strftime("%H"))
+    assert run_folder.name == invocation.job_id
+    # dbt wrote everything there, its log included, and recorded the job id it was given.
+    names = {path.name for path in run_folder.iterdir()}
+    assert {"run_results.json", "manifest.json", "dbt.log", "compiled", "run", "reports"} <= names
+    assert platform.artifact("run_results.json")["metadata"]["env"] == {"DBTX_JOB_ID": invocation.job_id}
+    with platform.session() as session:
+        job = session.get(m.Job, invocation.job_id)
+    assert (job.trigger, job.status) == ("external", "finished")
+    # Nothing of the run in the project's own target folder but the docs site's reports.
+    assert not (platform.target / "run_results.json").exists() or (
+        (platform.target / "run_results.json").stat().st_mtime < before.timestamp()
+    )
+
+
+def test_a_given_job_id_names_the_run(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    assert platform.dbtx("build", "-s", "stg_customers", "--job-id", "nightly-42", *NO_SEEDS) == 0
+    capsys.readouterr()
+    [invocation] = platform.invocations()
+    assert invocation.job_id == "nightly-42"
+    assert platform.run_folder().name == "nightly-42"
+
+
+def test_a_reused_job_id_is_refused(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    assert platform.dbtx("build", "-s", "stg_customers", "--job-id", "nightly-42", *NO_SEEDS) == 0
+    capsys.readouterr()
+    assert platform.dbtx("build", "-s", "stg_customers", "--job-id", "nightly-42", *NO_SEEDS) == 2
+    assert "job id 'nightly-42' has already run this hour" in capsys.readouterr().err
+    assert len(platform.invocations()) == 1
+
+
+def test_compiled_sql_and_relation_are_stored(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    assert platform.dbtx("build", "-s", "customers", *NO_SEEDS) == 0
+    capsys.readouterr()
+    [invocation] = platform.invocations()
+    results = {result["unique_id"]: result for result in platform.artifact("run_results.json")["results"]}
+    with platform.session() as session:
+        model = session.get(m.NodeResult, (invocation.invocation_id, "jaffle_shop", "model.jaffle_shop.customers"))
+    assert model.compiled_code == results["model.jaffle_shop.customers"]["compiled_code"]
+    assert model.compiled_code.lstrip().startswith("with")
+    assert model.relation_name == results["model.jaffle_shop.customers"]["relation_name"]
+    assert model.relation_name.endswith('."customers"')
 
 
 def test_a_failing_test_skips_renders_with_their_reason(
@@ -164,7 +238,7 @@ def test_recording_does_not_change_the_console_output(
     # Done when (plan Phase 5): the same output as without a store. Times and thread
     # order vary between runs, so lines are compared without them, sorted.
     args = ("build", "-s", "+exposure:top_customers", *NO_SEEDS)
-    assert platform.dbtx(*args) == 0  # creates the store
+    assert platform.dbtx(*args) == 0  # claims the project name (a warning-free first run)
     capsys.readouterr()
 
     assert platform.dbtx(*args, "--db-backend", "disabled") == 0
@@ -181,6 +255,8 @@ def normalised(output: str) -> list[str]:
     lines = []
     for line in output.splitlines():
         line = re.sub(r"^\d{2}:\d{2}:\d{2}\s+", "", line)
+        # Each run has its own folder (a new job id).
+        line = re.sub(r"/\S*/\.dbtx/logs/jaffle_shop/\d{4}-\d{2}-\d{2}/\d{2}/[^/\s]+/", "<run folder>/", line)
         line = re.sub(r"^\d+ of (\d+) ", r"<n> of \1 ", line)  # numbered in completion order
         line = re.sub(r"\s+\.*\s*\[", " ... [", line)  # padded to the number's width
         line = re.sub(r"\d+ hours \d+ minutes and \d+(\.\d+)? seconds", "<t>", line)
@@ -231,6 +307,7 @@ def version_keys(platform: PlatformProject) -> list[tuple[str, str, str]]:
 
 
 def test_a_first_run_without_target_stores_every_node(platform: PlatformProject) -> None:
+    # No project target folder: no warm cache, no docs site. dbt parses in full.
     shutil.rmtree(platform.target)
     assert platform.dbtx("build", "-s", "stg_customers", *NO_SEEDS) == 0
     manifest = platform.artifact("manifest.json")
@@ -318,7 +395,124 @@ def test_a_parse_takes_its_target_from_the_adapter(platform: PlatformProject) ->
     assert platform.count(m.Node) > 0
 
 
+def stored_statuses(platform: PlatformProject, invocation_id: str) -> dict[str, str]:
+    with platform.session() as session:
+        rows = session.execute(
+            sa.select(m.NodeResult.unique_id, m.NodeResult.status).where(m.NodeResult.invocation_id == invocation_id)
+        ).all()
+    return dict(rows)
+
+
+def test_source_freshness_is_recorded(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    # The example's source is its raw_orders seed, always stale: `warn`.
+    assert platform.dbtx("source", "freshness") == 0
+    out = capsys.readouterr().out
+    [invocation] = platform.invocations()
+    sources = platform.artifact("sources.json")
+    assert (invocation.command, invocation.result, invocation.target) == ("source freshness", "warning", "dev")
+    assert invocation.invocation_id == sources["metadata"]["invocation_id"]
+    assert stored_statuses(platform, invocation.invocation_id) == {
+        result["unique_id"]: result["status"] for result in sources["results"]
+    } == {"source.jaffle_shop.jaffle_raw.raw_orders": "warn"}
+    assert "dbtx docs:" not in out  # freshness does not patch the docs site
+
+
+def test_run_operation_is_recorded(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    assert platform.dbtx("run-operation", "log_store_count") == 0
+    out = capsys.readouterr().out
+    assert "jaffle_shop: 6 stores" in out
+    [invocation] = platform.invocations()
+    assert (invocation.command, invocation.result, invocation.error_message) == ("run-operation", "success", None)
+    # dbt hands the operation back as an artifact, not results; and an operation is not
+    # a stored node: no node results. The project's nodes come from its manifest.
+    assert stored_statuses(platform, invocation.invocation_id) == {}
+    assert platform.count(m.Node) == 51
+    assert "dbtx docs:" not in out
+
+
+def test_run_operation_failure_is_recorded(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    assert platform.dbtx("run-operation", "no_such_macro") != 0
+    capsys.readouterr()
+    [invocation] = platform.invocations()
+    assert (invocation.command, invocation.result) == ("run-operation", "failure")
+    assert "no_such_macro" in invocation.error_message
+
+
+def test_snapshot_is_recorded(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    assert platform.dbtx("snapshot") == 0
+    capsys.readouterr()
+    [invocation] = platform.invocations()
+    run_results = platform.artifact("run_results.json")
+    assert (invocation.command, invocation.result) == ("snapshot", "success")
+    assert stored_statuses(platform, invocation.invocation_id) == {
+        result["unique_id"]: result["status"] for result in run_results["results"]
+    } == {"snapshot.jaffle_shop.stores_snapshot": "success"}
+    with platform.session() as session:
+        snapshot = session.get(m.NodeResult, (invocation.invocation_id, "jaffle_shop", "snapshot.jaffle_shop.stores_snapshot"))
+    assert snapshot.relation_name.endswith('."stores_snapshot"')
+
+
+@pytest.mark.parametrize(
+    "argv, command",
+    [(("seed", "-s", "raw_stores"), "seed"), (("test", "-s", "stg_customers"), "test")],
+)
+def test_seed_and_test_are_recorded_and_patch_the_docs_site(
+    platform: PlatformProject, capsys: pytest.CaptureFixture[str], argv: tuple[str, ...], command: str
+) -> None:
+    assert platform.dbtx("docs", "generate") == 0
+    assert platform.dbtx("docs", "install") == 0
+    capsys.readouterr()
+
+    assert platform.dbtx(*argv) == 0
+    assert f"dbtx docs: patched the docs site {platform.target} with this run" in capsys.readouterr().out
+    latest = platform.invocations()[-1]
+    run_results = platform.artifact("run_results.json")
+    assert (latest.command, latest.result) == (command, "success")
+    expected = {result["unique_id"]: result["status"] for result in run_results["results"]}
+    assert stored_statuses(platform, latest.invocation_id) == expected
+    sidecar = json.loads((platform.target / "dbtx_runtime.json").read_text(encoding="utf-8"))
+    for unique_id in expected:
+        assert sidecar["nodes"][unique_id]["runs"][0]["job_id"] == latest.job_id
+
+
 def test_ls_is_not_recorded(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
     assert platform.dbtx("ls", "-s", "stg_customers", "--quiet") == 0
     capsys.readouterr()
-    assert not (platform.root / ".dbtx" / "dbtx.db").exists()
+    assert platform.count(m.Invocation) == 0
+    assert not (platform.root / ".dbtx" / "logs").exists()  # no run folder either
+
+
+# --------------------------------------------------------------------------------------
+# The warm cache and the docs site (plan Phase 6)
+# --------------------------------------------------------------------------------------
+
+
+def test_a_warm_cache_is_used_by_the_run(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    shutil.rmtree(platform.target)
+    assert platform.dbtx("warm-cache") == 0
+    # Only the cache: no manifest.json in the project's target folder (the docs site).
+    assert (platform.target / "partial_parse.msgpack").is_file()
+    assert not (platform.target / "manifest.json").exists()
+    capsys.readouterr()
+
+    assert platform.dbtx("build", "-s", "stg_customers", *NO_SEEDS) == 0
+    log = (platform.run_folder() / "dbt.log").read_text(encoding="utf-8")
+    assert "Partial parsing enabled, no changes found, skipping parsing" in log
+    assert platform.count(m.Invocation) == 1  # warm-cache itself is not recorded
+
+
+def test_the_docs_site_is_kept_current(platform: PlatformProject, capsys: pytest.CaptureFixture[str]) -> None:
+    site = platform.target
+    assert platform.dbtx("docs", "generate") == 0
+    assert {"index.html", "manifest.json", "catalog.json"} <= {path.name for path in site.iterdir()}
+    assert "run `dbtx docs install`" in capsys.readouterr().out
+    assert platform.dbtx("docs", "install") == 0
+    assert (site / "dbtx_docs.js").is_file()
+
+    assert platform.dbtx("build", "-s", "+exposure:top_customers", *NO_SEEDS) == 0
+    assert f"dbtx docs: patched the docs site {site} with this run" in capsys.readouterr().out
+    assert (site / "reports" / "top_customers.html").is_file()
+    sidecar = json.loads((site / "dbtx_runtime.json").read_text(encoding="utf-8"))
+    [latest] = sidecar["nodes"]["model.jaffle_shop.customers"]["runs"]
+    assert latest["job_id"] == platform.invocations()[-1].job_id
+    assert sidecar["nodes"]["exposure.jaffle_shop.top_customers"]["report"]

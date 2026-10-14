@@ -35,7 +35,6 @@ class SqliteAdapter(StoreAdapter):
     driver_hint = "sqlite:/// (the standard library driver)"
     install_hint = ""
     supports_schemas = False
-    upgrades_automatically = True
     minimum_server_version = (3, 35)
     minimum_server_reason = "RETURNING needs 3.35"
 

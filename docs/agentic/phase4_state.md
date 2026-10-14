@@ -5,10 +5,10 @@ sections 5.1–5.4 and 5.6 (the write paths), 6.7 (`dbtx db load`), 8 (frozen fi
 strict mode), D9 and "Phase 4". If a session is interrupted, resume from the first
 unchecked item. Update this file after every step.
 
-**Phase 4 complete (2026-10-11).** Not committed.
+**Phase 4 complete (2026-10-11).** Committed in `3eea72e`.
 
-**Branch:** `feature/db-backend`, on top of `5d69c94` (the Phase 3 commit). Phase 4 is not
-committed.
+**Branch:** `feature/db-backend`, on top of `5d69c94` (the Phase 3 commit). Phase 4 is
+committed in `3eea72e`.
 
 **Style rules from the user:** simple, verbose code (repetition is fine where it avoids
 abstraction); strict red -> green TDD per functional group, with the red and green

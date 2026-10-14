@@ -1,0 +1,10 @@
+# A snapshot of the stores seed, so the example covers `dbtx snapshot` (and `dbtx build`
+# builds a snapshot node).
+snapshots:
+  - name: stores_snapshot
+    relation: ref('raw_stores')
+    description: Store history, one row per change to a store.
+    config:
+      unique_key: id
+      strategy: check
+      check_cols: all

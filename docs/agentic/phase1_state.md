@@ -4,8 +4,8 @@ Tracks progress against [orm_implementation_plan.md](orm_implementation_plan.md)
 sections 1-3 and "Phase 1". If a session is interrupted, resume from the first unchecked
 item. Update this file after every step.
 
-**Branch:** `feature/db-backend`, on top of `725da35` (Phase 0 commit). Nothing
-committed for Phase 1 (the user has not asked for a commit).
+**Branch:** `feature/db-backend`, on top of `725da35` (Phase 0 commit). Phase 1 is
+committed in `9e04997`.
 
 **Style rules from the user:** simple, verbose code (repetition is fine where it avoids
 abstraction); strict red -> green TDD per functional group, with the red and green
@@ -36,7 +36,7 @@ results recorded here (`docs/contributing/guidelines.md`).
 - [x] 10. Full suite green, with Postgres: **542 passed, 1 skipped** (345 existing + 197 new; the skip is the SQLite storage-format test on Postgres), live tests included. Without `DBTX_TEST_POSTGRES_URL`: `-m "not live"` 488 passed, 28 skipped. Independence of the 198 store cases (with Postgres): reversed, shuffled (seeds 1-3), each file alone, and **each case alone** (198 separate runs): all pass; no `dbtx_test_*` schema left on the server. Python **3.10.22** (D10 floor, scratch env via `uv run --python 3.10`): 197 passed, 1 skipped
 - [x] 11. Plan updated: Phase 1 "Status" block lists the deviations; `docs/contributing/tests.md` describes `tests/unit/store/` and the `postgres` marker
 
-**Phase 1 complete.** Not committed: the user has not asked for a commit.
+**Phase 1 complete.** Committed in `9e04997`.
 Files touched: `pyproject.toml` (alembic, `postgres` marker), `uv.lock`, `src/dbtx/store/` (new: `__init__.py`, `schema.yml` moved from `docs/agentic/orm_to_implement.yml`, `types.py`, `enums.py`, `models/{__init__,base,platform,events,dbt_nodes,dbtx_actions}.py`), `tests/unit/store/` (new: `__init__.py`, `conftest.py`, `test_store_types.py`, `test_store_schema_parity.py`, `test_store_models.py`), `docs/contributing/tests.md`, `docs/agentic/orm_implementation_plan.md`, `docs/agentic/phase1_state.md`.
 
 ## Deviations from the plan

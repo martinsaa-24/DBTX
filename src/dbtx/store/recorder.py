@@ -175,6 +175,17 @@ class NullRecorder:
     def use_manifest(self, manifest: Any, reports: dict[str, Report], renders: dict[str, Report]) -> None:
         return
 
+    def job_id_of(self, args: dict[str, Any]) -> Optional[str]:
+        """dbtx's own job id (platform runs); else the one the args name."""
+        if self.job_id is not None:
+            return self.job_id
+        return read_job_id({"args": args}, DEFAULT_JOB_ID_VAR)
+
+    def run_folder_text(self) -> Optional[str]:
+        if self.run_folder is None:
+            return None
+        return str(self.run_folder)
+
     def report_changed(self, exposure_id: str, outcome: Outcome) -> None:
         return
 
@@ -185,10 +196,20 @@ class NullRecorder:
 class Recorder(NullRecorder):
     """Records one invocation of a project's recorded command."""
 
-    def __init__(self, store: Store, project: str, command: str) -> None:
+    def __init__(
+        self,
+        store: Store,
+        project: str,
+        command: str,
+        job_id: Optional[str] = None,
+        run_folder: Optional[Path] = None,
+    ) -> None:
         self.store = store
         self.project = project
         self.command = command
+        # Platform runs: the job id dbtx chose (and handed to dbt) and the run's folder.
+        self.job_id = job_id
+        self.run_folder = run_folder
         # From use_manifest (build / compile): the manifest dbtx parsed, its reports,
         # and the reports this run renders. All keyed by exposure unique_id.
         self.manifest_rows: Optional[ManifestRows] = None
@@ -225,7 +246,13 @@ class Recorder(NullRecorder):
             return NullRecorder()
         if config.db_uri is None or config.db_uri.value is None:
             return NullRecorder()
-        return Recorder(open_store(config), config.project_name, command)
+        return Recorder(
+            open_store(config),
+            config.project_name,
+            command,
+            job_id=config.job_id,
+            run_folder=config.run_folder,
+        )
 
     # ----------------------------------------------------------------------------------
     # Before dbt runs
@@ -283,7 +310,7 @@ class Recorder(NullRecorder):
                 target=UNKNOWN_TARGET,
                 selector=selector_of(args),
                 args=args,
-                job_id=read_job_id({"args": args}, DEFAULT_JOB_ID_VAR),
+                job_id=self.job_id_of(args),
             )
             adapter_type = UNKNOWN_ADAPTER_TYPE
             if self.manifest_rows is not None:
@@ -303,6 +330,7 @@ class Recorder(NullRecorder):
                     record=record,
                     run_by=current_user(),
                     host=this_host(),
+                    run_folder=self.run_folder_text(),
                 )
                 if len(self.renders) > 0:
                     report_repo.insert_pending_renders(

@@ -265,6 +265,31 @@ def test_read_job_id_sources(rr: dict, expected: str | None) -> None:
     assert read_job_id(rr) == expected
 
 
+@pytest.mark.parametrize(
+    "rr, expected",
+    [
+        # Platform mode: dbtx hands dbt DBT_ENV_CUSTOM_ENV_DBTX_JOB_ID, recorded as DBTX_JOB_ID.
+        ({"metadata": {"env": {"DBTX_JOB_ID": "platform-1"}}}, "platform-1"),
+        # Standalone mode: the user may name the job with --vars '{DBTX_JOB_ID: ...}'.
+        ({"args": {"vars": {"DBTX_JOB_ID": "standalone-1"}}}, "standalone-1"),
+        ({"args": {"vars": "{DBTX_JOB_ID: standalone-2}"}}, "standalone-2"),
+        # DBTX_JOB_ID wins over the legacy job_id var, from either source.
+        ({"args": {"vars": {"job_id": "legacy"}}, "metadata": {"env": {"DBTX_JOB_ID": "platform-1"}}}, "platform-1"),
+        ({"args": {"vars": {"job_id": "legacy", "DBTX_JOB_ID": "standalone-1"}}}, "standalone-1"),
+        # The environment (set by dbtx) wins over vars.
+        ({"args": {"vars": {"DBTX_JOB_ID": "from-vars"}}, "metadata": {"env": {"DBTX_JOB_ID": "from-env"}}}, "from-env"),
+        ({"metadata": {"env": {"DBTX_JOB_ID": ""}}, "args": {"vars": {"job_id": "legacy"}}}, "legacy"),
+    ],
+)
+def test_read_job_id_prefers_dbtx_job_id(rr: dict, expected: str | None) -> None:
+    assert read_job_id(rr) == expected
+
+
+def test_read_job_id_dbtx_job_id_wins_over_a_configured_var_name() -> None:
+    rr = {"args": {"vars": {"ci_run": "RUN-9"}}, "metadata": {"env": {"DBTX_JOB_ID": "platform-1"}}}
+    assert read_job_id(rr, "ci_run") == "platform-1"
+
+
 def test_read_job_id_var_name_is_configurable() -> None:
     rr = {"args": {"vars": {"ci_run": "RUN-9", "job_id": "ignored"}}}
     assert read_job_id(rr, "ci_run") == "RUN-9"
@@ -341,3 +366,26 @@ def test_sidecar_without_job_ids_still_hydrates(tmp_path: Path, docs_loc: Path) 
         ("123v1", "inv-1"),
         (None, "inv-0"),
     ]
+
+
+def test_patch_command_reports_dbtx_job_id(
+    tmp_path: Path, docs_loc: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dbtx.docs.command import run as docs_command
+
+    run_loc = tmp_path / "loc_run"
+    _write(run_loc, "run_results.json",
+           _run_results(["a"], "inv-1", "2026-01-02T00:00:00Z", env={"DBTX_JOB_ID": "platform-1"}))
+    assert docs_command(["patch", "--docs-loc", str(docs_loc), "--run-loc", str(run_loc)]) == 0
+    assert "  job platform-1\n" in capsys.readouterr().out
+
+
+def test_patch_command_names_both_job_id_sources_when_there_is_none(
+    tmp_path: Path, docs_loc: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dbtx.docs.command import run as docs_command
+
+    run_loc = tmp_path / "loc_run"
+    _write(run_loc, "run_results.json", _run_results(["a"], "inv-1", "2026-01-02T00:00:00Z"))
+    assert docs_command(["patch", "--docs-loc", str(docs_loc), "--run-loc", str(run_loc)]) == 0
+    assert "  no job id (the run has no DBTX_JOB_ID and no 'job_id' var)\n" in capsys.readouterr().out

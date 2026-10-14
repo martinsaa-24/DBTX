@@ -1,7 +1,7 @@
 import importlib.util
 from types import ModuleType
 
-from tests.conftest import FROZEN_MANIFEST, FROZEN_RUN_RESULTS, REPO
+from tests.conftest import FROZEN_MANIFEST, FROZEN_RUN_RESULTS, FROZEN_SOURCES, REPO
 
 
 def _freeze_module() -> ModuleType:
@@ -24,4 +24,13 @@ def test_frozen_run_results_match_example_project() -> None:
     current = freeze.dumps(freeze.frozen_run_results())
     assert current == FROZEN_RUN_RESULTS.read_text(encoding="utf-8"), (
         "tests/fixtures/run_results.json is stale; run `python scripts/freeze_manifest.py`"
+    )
+
+
+def test_frozen_sources_match_example_project() -> None:
+    # A real `dbt source freshness` of the example's source (it used to be hand-written).
+    freeze = _freeze_module()
+    current = freeze.dumps(freeze.frozen_sources())
+    assert current == FROZEN_SOURCES.read_text(encoding="utf-8"), (
+        "tests/fixtures/sources.json is stale; run `python scripts/freeze_manifest.py`"
     )

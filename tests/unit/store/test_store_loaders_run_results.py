@@ -25,8 +25,10 @@ project)`: one node-result row per result:
 * `rows_affected` from `adapter_response`; an empty `adapter_response` is None
 * `checksum` from the manifest of the same run (None if unknown; always None for
   freshness)
-* freshness: `message` = the error, `failures` / `rows_affected` None; a `runtime
-  error` entry has no timing and `execution_time` 0.0
+* `compiled_code` and `relation_name` as dbt wrote them (spec v3); None when the node
+  has none (seeds, exposures), and an empty string is None too
+* freshness: `message` = the error, `failures` / `rows_affected` / `compiled_code` /
+  `relation_name` None; a `runtime error` entry has no timing and `execution_time` 0.0
 """
 
 from __future__ import annotations
@@ -160,7 +162,7 @@ def test_invocation_from_sources(sources: dict) -> None:
 
 def test_a_row_per_result(run_results: dict) -> None:
     rows = run_result_rows(run_results, "jaffle_shop", {})
-    assert len(rows) == 48
+    assert len(rows) == 49
     assert {row["invocation_id"] for row in rows} == {RUN_ID}
     assert {row["project"] for row in rows} == {"jaffle_shop"}
 
@@ -182,7 +184,25 @@ def test_a_seed_row(run_results: dict) -> None:
         "failures": None,
         "rows_affected": 10,
         "adapter_response": {"_message": "INSERT 10", "code": "INSERT", "rows_affected": 10},
+        "compiled_code": None,
+        "relation_name": None,
     }
+
+
+def test_a_model_row_has_its_compiled_sql_and_relation(run_results: dict) -> None:
+    rows = {r["unique_id"]: r for r in run_result_rows(run_results, "jaffle_shop", {})}
+    model = rows["model.jaffle_shop.customers"]
+    assert model["compiled_code"] == result_of(run_results, "model.jaffle_shop.customers")["compiled_code"]
+    assert model["compiled_code"].startswith("with order_stats as (")
+    assert model["relation_name"] == '"jaffle_shop"."main"."customers"'
+    test = rows[WARN_TEST]
+    assert test["compiled_code"].startswith("-- Surfaces unusually frequent customers.")
+
+
+def test_empty_compiled_code_is_none(run_results: dict) -> None:
+    result_of(run_results, "model.jaffle_shop.customers").update(compiled_code="", relation_name="")
+    row = {r["unique_id"]: r for r in run_result_rows(run_results, "jaffle_shop", {})}["model.jaffle_shop.customers"]
+    assert (row["compiled_code"], row["relation_name"]) == (None, None)
 
 
 def test_a_warning_test_row(run_results: dict) -> None:
@@ -215,13 +235,13 @@ def test_a_result_without_timing(run_results: dict) -> None:
 
 
 def test_freshness_rows(sources: dict) -> None:
-    rows = freshness_result_rows(sources, "jaffle_shop")
-    by_id = {row["unique_id"]: row for row in rows}
-    assert by_id["source.jaffle_shop.ecom.raw_orders"] == {
+    # A real `dbt source freshness` of the example (its raw_orders seed, always stale).
+    [row] = freshness_result_rows(sources, "jaffle_shop")
+    assert row == {
         "invocation_id": FRESHNESS_ID,
         "project": "jaffle_shop",
-        "unique_id": "source.jaffle_shop.ecom.raw_orders",
-        "status": "pass",
+        "unique_id": "source.jaffle_shop.jaffle_raw.raw_orders",
+        "status": "warn",
         "checksum": None,
         "started_at": utc("2026-01-02T00:00:10"),
         "completed_at": utc("2026-01-02T00:00:15"),
@@ -230,12 +250,27 @@ def test_freshness_rows(sources: dict) -> None:
         "message": None,
         "failures": None,
         "rows_affected": None,
-        "adapter_response": None,
+        "adapter_response": {"_message": "OK"},
+        "compiled_code": None,
+        "relation_name": None,
     }
-    assert by_id["source.jaffle_shop.ecom.raw_customers"] == {
+
+
+def test_a_runtime_error_freshness_entry(sources: dict) -> None:
+    # dbt 1.12 leaves a source whose check failed out of sources.json, but the shape
+    # (dbt's SourceFreshnessRuntimeError) is still read: other dbt versions and tools.
+    sources["results"] = [
+        {
+            "unique_id": "source.jaffle_shop.jaffle_raw.raw_customers",
+            "status": "runtime error",
+            "error": "Database Error\n  Catalog Error: Table with name raw_customers does not exist!",
+        }
+    ]
+    [row] = freshness_result_rows(sources, "jaffle_shop")
+    assert row == {
         "invocation_id": FRESHNESS_ID,
         "project": "jaffle_shop",
-        "unique_id": "source.jaffle_shop.ecom.raw_customers",
+        "unique_id": "source.jaffle_shop.jaffle_raw.raw_customers",
         "status": "runtime error",
         "checksum": None,
         "started_at": None,
@@ -246,6 +281,8 @@ def test_freshness_rows(sources: dict) -> None:
         "failures": None,
         "rows_affected": None,
         "adapter_response": None,
+        "compiled_code": None,
+        "relation_name": None,
     }
 
 
