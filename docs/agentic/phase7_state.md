@@ -112,6 +112,29 @@ changed only with the Edit / Write tools.
 
 **Phase 7 complete (2026-10-17).** Not committed.
 
+- [x] 10. CI redesigned (user, 2026-10-17; not part of the plan): mount → clear → copy →
+      lint / test / package the copy → keep artifacts → empty on success, left on failure
+  - `ci/setup.sh`: `mount_workspace` (a `CICD_TMPFS_SIZE` tmpfs at `CICD_ROOT` unless it
+    is a mount point; `sudo` unless root; moved here from the workflow),
+    `clean_workspace`, `copy_repository` (`git ls-files --cached --others
+    --exclude-standard`, files that exist, via tar: the working tree as it is, ignored
+    files left out), `install_dependencies`. Gone: the clone and checkout, `CICD_REF`,
+    `CICD_REPO` (now always the scripts' repository), `CICD_WORKING_TREE`
+  - `clear_workspace` (the refusals) moved to `ci/lib.sh`, shared by setup and run
+  - `ci/run.sh`: setup, build, then `keep_artifacts` (`out/` → `.build/`, pass or fail;
+    only from a marked workspace), then on success `clear_workspace`, on failure exit 1
+    with the workspace left
+  - Parallel logs moved from `.build/` to `out/logs/` (kept in `.build/logs/`)
+  - `ci.yml`: no mount step, no `CICD_REF`; uploads `.build`
+  - Checked by hand (no tests, per the user): full `ci/run.sh` passed (211 files copied,
+    unit 1637, live 54, package), `/mnt/cicd` empty after, `.build/` with source.txt,
+    unit.xml, live.xml, logs/, dist/; `CICD_PYTHON=3.99` → setup fails, workspace left,
+    `.build/source.txt` kept, exit 1; a non-mounted `CICD_ROOT` without sudo → "cannot
+    mount a tmpfs ... (needs root or sudo; or mount one yourself)"; a relative
+    `CICD_ROOT` refused. The mount itself was not exercised (sudo needs a password here;
+    GitHub's runners have passwordless sudo). Not run on GitHub
+  - Docs: `docs/contributing/ci.md`, README "Tests", `.gitignore` comment
+
 ## Decisions made during implementation
 
 - **No ETag** on the served document: it is `no-store` and the overlay cache-busts, so

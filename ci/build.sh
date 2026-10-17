@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lint, test and package the workspace that ci/setup.sh prepared (settings: ci/env.sh).
 #
-#   ci/build.sh                    unit and live tests in parallel, logged to .build/
+#   ci/build.sh                    unit and live tests in parallel, logged to out/logs/
 #   ci/build.sh --sequential       unit, then live tests, on the console (no log files)
 #
 # Four checks; the first failure stops the run:
@@ -13,11 +13,12 @@
 #
 # By default unit and live run at the same time (they share nothing they write: separate
 # temporary folders, reports and processes), each writing its output to
-# .build/unit.log and .build/live.log at the repository root. --sequential runs them one
-# after the other, with their output on the console.
+# $CICD_ROOT/out/logs/unit.log and live.log. --sequential runs them one after the other,
+# with their output on the console.
 #
-# To re-run one check, run its command by hand in $CICD_ROOT/src (the commands are
-# below). JUnit reports and the wheel go to $CICD_ROOT/out.
+# Everything runs against the copy in $CICD_ROOT/src, never the repository itself. To
+# re-run one check, run its command by hand there (the commands are below). JUnit
+# reports, logs and the wheel go to $CICD_ROOT/out (ci/run.sh keeps a copy in .build/).
 #
 # Errors: every command is checked with `|| fail "..."` (ci/lib.sh explains why).
 
@@ -70,7 +71,7 @@ run_lint() {
     ok "lint passed ($((SECONDS - started))s)"
 }
 
-# run_pytest <name> <pytest arguments...>: runs pytest in the clone, with its temporary
+# run_pytest <name> <pytest arguments...>: runs pytest in the copy, with its temporary
 # folders under $CICD_ROOT/tmp/<name> and a JUnit report at $CICD_ROOT/out/<name>.xml.
 # Uses CICD_POSTGRES_URI when set; otherwise the tests start a throwaway Postgres.
 #
@@ -124,7 +125,7 @@ show_test_result() {
 }
 
 # run_tests_in_parallel: unit and live tests at the same time, each in the background
-# with its output in .build/<name>.log; waits for both, then reports both (so two
+# with its output in out/logs/<name>.log; waits for both, then reports both (so two
 # failures are both shown) before failing.
 run_tests_in_parallel() {
     header "unit and live tests (in parallel)"

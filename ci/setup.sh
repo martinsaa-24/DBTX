@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Prepare a clean CI workspace under CICD_ROOT (settings: ci/env.sh).
 #
-#   ci/setup.sh                                  the committed HEAD, Python 3.14
-#   CICD_WORKING_TREE=1 ci/setup.sh              ... with your uncommitted changes
+#   ci/setup.sh                                  Python 3.14
 #   CICD_PYTHON=3.10 ci/setup.sh                 ... on Python 3.10
 #
-# Three steps, in order: clean the workspace, clone the repository, install the
-# dependencies. Then run ci/build.sh (ci/run.sh does both).
+# Four steps, in order:
+#   mount     a tmpfs at CICD_ROOT, unless it is a mount point already
+#   clear     empty CICD_ROOT and mark it as dbtx's CI workspace
+#   copy      the repository, as it is on disk, into CICD_ROOT/src
+#   install   Python and the locked dependencies
+# Then run ci/build.sh (ci/run.sh does both, and cleans up after).
 #
 # Errors: every command is checked with `|| fail "..."` (ci/lib.sh explains why).
 
@@ -16,104 +19,95 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 
 set -euo pipefail
+
 # shellcheck source=ci/env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
-# clean_workspace: empty CICD_ROOT and mark it as ours.
-#
-# The only step that deletes, so it refuses anything that does not look like dbtx's CI
-# workspace: a relative path or `/`, a folder containing the repository under test, and a
-# non-empty folder without the marker file (for example a mistyped CICD_ROOT). The folder
-# itself is kept and only its contents removed: it may be a tmpfs mount point.
-clean_workspace() {
-    header "clean $CICD_ROOT"
-
-    # `/` (or `//`), and relative paths, are never a workspace.
-    if [ -z "${CICD_ROOT%/}" ]; then
-        fail "refusing CICD_ROOT='$CICD_ROOT': it is the filesystem root"
-    fi
+# mount_workspace: a tmpfs (RAM disk) at CICD_ROOT, unless something is mounted there
+# already (a tmpfs from an earlier run, or one you mounted yourself). Mounting needs root:
+# sudo is used when not running as root (GitHub's runners allow it without a password).
+mount_workspace() {
+    header "workspace $CICD_ROOT"
     case "$CICD_ROOT" in
         /*) ;;
         *) fail "refusing CICD_ROOT='$CICD_ROOT': not an absolute path" ;;
     esac
 
-    # Compare real paths (no symlinks, no `..`): the repository must not be inside.
-    local root
-    local repo
-    root="$(realpath -m "$CICD_ROOT")" || fail "cannot resolve CICD_ROOT='$CICD_ROOT'"
-    repo="$(realpath -m "$CICD_REPO")" || fail "cannot resolve CICD_REPO='$CICD_REPO'"
-    case "$repo/" in
-        "$root"/*) fail "refusing to clean $root: it contains the repository $repo" ;;
-    esac
-
-    # A folder with something in it must carry our marker. `ls` runs on its own line, so
-    # a failure to list it stops here instead of looking like an empty folder.
-    if [ -d "$root" ]; then
-        local contents
-        contents="$(ls -A "$root")" || fail "cannot list $root"
-        if [ -n "$contents" ] && [ ! -f "$root/.dbtx-cicd" ]; then
-            fail "refusing to clean $root: it is not empty and has no .dbtx-cicd marker (not created by dbtx's CI). Empty it yourself, or set CICD_ROOT to another folder"
-        fi
+    if mountpoint -q "$CICD_ROOT"; then
+        ok "$CICD_ROOT is mounted already"
+        return
     fi
 
-    # Empty it (keeping the folder), mark it, and lay out the folders the steps use.
-    mkdir -p "$root" || fail "cannot create $root"
-    find "$root" -mindepth 1 -delete || fail "cannot empty $root"
-    touch "$root/.dbtx-cicd" || fail "cannot create the marker $root/.dbtx-cicd"
-    mkdir -p "$CICD_OUT" "$CICD_TMP" || fail "cannot create $CICD_OUT and $CICD_TMP"
-    ok "cleaned $root"
+    local uid
+    uid="$(id -u)" || fail "id -u failed"
+    local as_root=()
+    if [ "$uid" -ne 0 ]; then
+        as_root=(sudo)
+    fi
+    if [ ! -d "$CICD_ROOT" ]; then
+        "${as_root[@]}" mkdir -p "$CICD_ROOT" || fail "cannot create $CICD_ROOT (needs root or sudo)"
+    fi
+    "${as_root[@]}" mount -t tmpfs -o "size=$CICD_TMPFS_SIZE,mode=0777" tmpfs "$CICD_ROOT" \
+        || fail "cannot mount a tmpfs at $CICD_ROOT (needs root or sudo; or mount one yourself)"
+    ok "mounted a $CICD_TMPFS_SIZE tmpfs at $CICD_ROOT"
 }
 
-# clone_repository: clone CICD_REPO at CICD_REF into CICD_ROOT/src.
-#
-# With CICD_WORKING_TREE=1 it then copies the repository's uncommitted changes over the
-# commit: changed (staged or not) and untracked files that git does not ignore are
-# copied, and deleted files are removed. Writes what was tested to out/source.txt.
-clone_repository() {
-    header "clone $CICD_REPO"
+# clean_workspace: empty CICD_ROOT (clear_workspace, in ci/lib.sh, refuses anything that
+# is not dbtx's CI workspace), mark it, and lay out the folders the steps use.
+clean_workspace() {
+    header "clear $CICD_ROOT"
+    clear_workspace
+    touch "$CICD_MARKER" || fail "cannot create the marker $CICD_MARKER"
+    mkdir -p "$CICD_SRC" "$CICD_OUT" "$CICD_TMP" || fail "cannot create the workspace folders in $CICD_ROOT"
+    ok "cleared $CICD_ROOT"
+}
+
+# copy_repository: the repository as it is on disk, into CICD_ROOT/src: every file git
+# tracks and every untracked file git does not ignore (so a local `.venv/`, `target/` or
+# `examples/.dbtx/` never reaches the tests). A tracked file deleted from the working tree
+# is not copied. Writes what was tested to out/source.txt.
+copy_repository() {
+    header "copy $CICD_REPO"
+    local listed="$CICD_TMP/copy-listed"
+    local existing="$CICD_TMP/copy-existing"
+    git -C "$CICD_REPO" ls-files -z --cached --others --exclude-standard > "$listed" \
+        || fail "cannot list the files of $CICD_REPO (is it a git repository?)"
+
+    # Leave out the tracked files that were deleted from the working tree.
+    : > "$existing" || fail "cannot create $existing"
+    local path
+    local count=0
+    while IFS= read -r -d '' path; do
+        if [ -e "$CICD_REPO/$path" ] || [ -L "$CICD_REPO/$path" ]; then
+            printf '%s\0' "$path" >> "$existing" || fail "cannot write $existing"
+            count=$((count + 1))
+        fi
+    done < "$listed"
+
+    # No `cd`: inside a pipeline checked by `|| fail`, a failed `cd` would not stop anything.
+    tar -C "$CICD_REPO" --null --files-from="$existing" -cf - | tar -C "$CICD_SRC" -xf - \
+        || fail "cannot copy $CICD_REPO into $CICD_SRC"
+    rm -f "$listed" "$existing" || fail "cannot remove the file lists in $CICD_TMP"
+    info "copied $count files"
 
     local commit
-    commit="$(git -C "$CICD_REPO" rev-parse --verify "$CICD_REF^{commit}")" \
-        || fail "$CICD_REPO has no commit '$CICD_REF'"
-    git clone --quiet --no-hardlinks "$CICD_REPO" "$CICD_SRC" \
-        || fail "cannot clone $CICD_REPO into $CICD_SRC"
-    git -C "$CICD_SRC" -c advice.detachedHead=false checkout --quiet --detach "$commit" \
-        || fail "cannot check out $commit in $CICD_SRC"
-    info "checked out $commit"
-
+    local changes
+    commit="$(git -C "$CICD_REPO" rev-parse HEAD)" || fail "cannot read the commit of $CICD_REPO"
+    changes="$(git -C "$CICD_REPO" status --porcelain)" || fail "cannot read the status of $CICD_REPO"
     local uncommitted="no"
-    if [ "$CICD_WORKING_TREE" = "1" ]; then
-        if [ "$CICD_REF" != "HEAD" ]; then
-            fail "CICD_WORKING_TREE=1 needs CICD_REF=HEAD (the changes are relative to HEAD)"
-        fi
-        # Changed and untracked files: listed by git (NUL-separated), packed by tar from
-        # the repository, unpacked into the clone. No `cd`: inside a pipeline checked by
-        # `|| fail`, a failed `cd` would not stop anything.
-        {
-            git -C "$CICD_REPO" diff --name-only -z --diff-filter=d HEAD \
-                && git -C "$CICD_REPO" ls-files -z --others --exclude-standard
-        } | tar -C "$CICD_REPO" --null --files-from=- -cf - \
-            | tar -C "$CICD_SRC" -xf - \
-            || fail "cannot copy the uncommitted changes of $CICD_REPO"
-        # Files deleted in the working tree: removed from the clone.
-        git -C "$CICD_REPO" diff --name-only -z --diff-filter=D HEAD \
-            | xargs -0 -r -I{} rm -f -- "$CICD_SRC/{}" \
-            || fail "cannot remove the files deleted in $CICD_REPO"
-        uncommitted="yes (CICD_WORKING_TREE=1)"
-        info "copied the uncommitted changes"
+    if [ -n "$changes" ]; then
+        uncommitted="yes"
     fi
-
     printf 'repository: %s\ncommit: %s\nuncommitted changes: %s\n' \
         "$CICD_REPO" "$commit" "$uncommitted" > "$CICD_OUT/source.txt" \
         || fail "cannot write $CICD_OUT/source.txt"
-    ok "cloned $commit (uncommitted changes: $uncommitted)"
+    ok "copied $commit (uncommitted changes: $uncommitted)"
 }
 
 # install_dependencies: install CICD_PYTHON and the locked dependencies into the
 # workspace's venv. `--frozen` uses uv.lock as it is: an outdated lock file fails here.
 install_dependencies() {
     header "install Python $CICD_PYTHON and the dependencies"
-
     uv python install "$CICD_PYTHON" || fail "cannot install Python $CICD_PYTHON"
     uv --directory "$CICD_SRC" sync --frozen --extra postgres --python "$CICD_PYTHON" \
         || fail "uv sync failed (is uv.lock up to date?)"
@@ -128,6 +122,7 @@ install_dependencies() {
 }
 
 # The steps, called plainly (never inside if / || / &&: see ci/lib.sh).
+mount_workspace
 clean_workspace
-clone_repository
+copy_repository
 install_dependencies

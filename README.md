@@ -802,7 +802,7 @@ python scripts/generate_seeds.py
 ```console
 pytest -m "not live"          # ~1 min: unit tests (Postgres ones start a throwaway server)
 pytest                        # ~2 min: also real dbt runs of the example project
-ci/run.sh                     # the whole CI run, as GitHub runs it (into /mnt/cicd)
+ci/run.sh                     # the whole CI run, as GitHub runs it, on a copy of your working tree in /mnt/cicd
 ```
 
 CI (GitHub Actions, Python 3.10 and 3.14) runs `ci/run.sh`: lint (ruff), unit and live

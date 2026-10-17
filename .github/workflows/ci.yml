@@ -1,12 +1,13 @@
-# dbtx CI. The work is done by ci/run.sh (ci/setup.sh + ci/build.sh), the same scripts a
-# developer runs locally; this file only provides the machine: a RAM disk (tmpfs) at
-# /mnt/cicd and uv. See docs/contributing/ci.md.
+# dbtx CI. The work is done by ci/run.sh, the same script a developer runs locally: it
+# mounts a RAM disk (tmpfs) at /mnt/cicd, copies the checkout there, lints, tests and
+# packages that copy, and keeps the reports in .build/. This file only provides the
+# machine (uv) and uploads .build/. See docs/contributing/ci.md.
 name: CI
 
 on:
-  # Pull requests into main. GitHub tests the PR's merge commit (the PR branch merged
-  # into the current main), so github.sha below is the code that would land on main.
-  # Re-runs on every push to the PR branch.
+  # Pull requests into main. actions/checkout checks out the PR's merge commit (the PR
+  # branch merged into the current main): the code that would land on main, and what
+  # ci/run.sh tests. Re-runs on every push to the PR branch.
   pull_request:
     branches: [main]
   # On demand: Actions tab -> CI -> Run workflow, on any branch (tests its latest commit).
@@ -24,7 +25,6 @@ jobs:
     env:
       CICD_ROOT: /mnt/cicd
       CICD_PYTHON: ${{ matrix.python }}
-      CICD_REF: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,12 +32,7 @@ jobs:
         with:
           version: "0.13.0"
 
-      - name: Workspace on a RAM disk (tmpfs)
-        run: |
-          sudo mkdir -p /mnt/cicd
-          sudo mount -t tmpfs -o size=4g,mode=0777 tmpfs /mnt/cicd
-
-      - name: Set up, lint, test, package (ci/run.sh)
+      - name: Mount, copy, lint, test, package (ci/run.sh)
         run: ci/run.sh
 
       - name: Keep the reports and logs
@@ -45,8 +40,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ci-python-${{ matrix.python }}
-          # The reports and the wheel, and the parallel test runs' logs.
-          path: |
-            /mnt/cicd/out
-            .build
+          # ci/run.sh's copy of out/: source.txt, the JUnit reports, the parallel test
+          # runs' logs and the wheel.
+          path: .build
           if-no-files-found: ignore
