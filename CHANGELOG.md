@@ -41,8 +41,21 @@
   and `dbtx db upgrade` (after upgrading dbtx) create or migrate dbtx's tables; no run
   does it implicitly. Run `dbtx db init` once on a new platform. The adapter attribute
   `upgrades_automatically` is gone (a plugin that still sets it is not migrated).
+- **`dbtx docs serve` uses the database in platform mode** (backend enabled): it needs
+  `DB_URI` and an initialised, current database, checked before the port is bound.
+  `--db-backend disabled` or `--standalone-mode` serve the sidecar file as before.
+- The docs overlay no longer shows "Last compiled" (every run compiles, and so does
+  `dbtx compile` on its own).
 
 ### Added
+
+- `dbtx docs serve` reads the run history from the database in platform mode: the
+  overlay's `dbtx_runtime.json` is built from the stored runs (same shape as the
+  sidecar), cached, and checked for new runs at most every 5 seconds, so a running
+  server shows new runs without a restart. A database failure keeps the last document
+  (one warning); before any, a 503. History that exists only in a sidecar is not shown.
+- The overlay shows **Updated** when served from the database: when the version of the
+  node a run used first appeared.
 
 - `dbtx warm-cache`: refreshes a project's partial-parse cache in its own `target/`
   without running anything; every platform run copies it into its run folder.

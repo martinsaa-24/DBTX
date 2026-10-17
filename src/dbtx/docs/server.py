@@ -19,7 +19,7 @@ import socket
 import sys
 import webbrowser
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import parse_qs
 
 import uvicorn
@@ -27,13 +27,16 @@ from starlette.applications import Starlette
 from starlette.datastructures import MutableHeaders
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from dbtx.docs.injector import ASSET_FILENAME, asset_source
 from dbtx.docs.sidecar import SIDECAR_FILENAME
+
+if TYPE_CHECKING:
+    from dbtx.docs.store_history import HistoryCache
 
 INDEX_FILENAME: str = "index.html"
 
@@ -145,14 +148,38 @@ def _require_docs_loc(docs_loc: Path) -> Path:
     return loc
 
 
-def create_app(docs_loc: Path) -> Starlette:
-    """An ASGI app serving the docs site rooted at `docs_loc`."""
+def _history_route(history: "HistoryCache") -> Route:
+    """Serves the overlay's run history from the database instead of the sidecar file.
+
+    A plain `def` endpoint: Starlette runs it in its thread pool, so the database
+    queries never block the event loop. A failure is a 503 the overlay treats like a
+    missing sidecar (no run data).
+    """
+    from dbtx.docs.store_history import HistoryUnavailable
+
+    def endpoint(request: Request) -> Response:
+        try:
+            body = history.document()
+        except HistoryUnavailable as exc:
+            return JSONResponse({"error": str(exc)}, status_code=503)
+        return Response(body, media_type="application/json")
+
+    return Route(f"/{SIDECAR_FILENAME}", endpoint=endpoint, methods=["GET", "HEAD"])
+
+
+def create_app(docs_loc: Path, history: Optional["HistoryCache"] = None) -> Starlette:
+    """An ASGI app serving the docs site rooted at `docs_loc`.
+
+    With a `history` (platform mode, backend enabled), `dbtx_runtime.json` comes from
+    it, not from the file.
+    """
     loc = _require_docs_loc(docs_loc)
+    routes = [_overlay_route(loc)]
+    if history is not None:
+        routes.append(_history_route(history))
+    routes.append(Mount("/", app=StaticFiles(directory=loc, html=True), name="docs"))
     return Starlette(
-        routes=[
-            _overlay_route(loc),
-            Mount("/", app=StaticFiles(directory=loc, html=True), name="docs"),
-        ],
+        routes=routes,
         middleware=[Middleware(CachePolicy)],
     )
 
@@ -197,20 +224,23 @@ def bind(host: str, port: int) -> socket.socket:
 
 
 def build_server(docs_loc: Path, host: str = DEFAULT_HOST,
-                 port: int = DEFAULT_PORT, log_level: str = "info") -> uvicorn.Server:
+                 port: int = DEFAULT_PORT, log_level: str = "info",
+                 history: Optional["HistoryCache"] = None) -> uvicorn.Server:
     """A configured uvicorn server, not yet running.
 
     Separate from `serve` so a test can drive it with an already-bound socket
     via `run(sockets=[...])` and know the port without racing startup.
     """
     config = uvicorn.Config(
-        create_app(docs_loc), host=host, port=port, log_level=log_level)
+        create_app(docs_loc, history=history), host=host, port=port, log_level=log_level)
     return uvicorn.Server(config)
 
 
 def serve(docs_loc: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
-          open_browser: bool = False) -> None:
+          open_browser: bool = False, history: Optional["HistoryCache"] = None) -> None:
     """Serves the docs at `host:port` until interrupted.
+
+    With a `history`, the run history comes from the database (see `create_app`).
 
     `open_browser` is opt-in, unlike dbt's `--browser`, which defaults to True:
     this server is also meant to be startable from a script or CI job, where
@@ -218,7 +248,7 @@ def serve(docs_loc: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
     """
     # Built before bind(), so an unservable docs directory is reported without
     # having taken a port first.
-    instance = build_server(docs_loc, host=host, port=port)
+    instance = build_server(docs_loc, host=host, port=port, history=history)
     sock = bind(host, port)
     try:
         # getsockname, not `port`: with `--port 0` the kernel chose one. Also

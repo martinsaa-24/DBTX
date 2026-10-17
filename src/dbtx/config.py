@@ -129,9 +129,9 @@ MODE_STANDALONE = "standalone"
 DEFAULT_DB_SCHEMA = "dbtx"
 DB_SCHEMA_PATTERN = re.compile(r"[a-z_][a-z0-9_]{0,62}")
 
-# Commands that use the database: the commands the store records (plan 5.2) and the
-# `dbtx db` commands that change it. In platform mode with the backend enabled they
-# require DB_URI.
+# Commands that use the database: the commands the store records (plan 5.2), `dbtx docs
+# serve` (it serves the run history from the database, plan Phase 7) and the `dbtx db`
+# commands. In platform mode with the backend enabled they require DB_URI.
 COMMANDS_THAT_USE_THE_DATABASE = (
     "build",
     "compile",
@@ -144,6 +144,7 @@ COMMANDS_THAT_USE_THE_DATABASE = (
     "source freshness",
     "source snapshot-freshness",
     "docs generate",
+    "docs serve",
     "db init",
     "db upgrade",
     "db load",

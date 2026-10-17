@@ -19,6 +19,7 @@ import uvicorn
 from starlette.testclient import TestClient
 
 from dbtx.docs import injector
+from dbtx.docs.store_history import HistoryUnavailable
 from dbtx.docs.server import (
     ServerError,
     bind,
@@ -212,6 +213,74 @@ def test_sidecar_served_when_present(docs_loc: Path) -> None:
     assert response.status_code == 200
     assert response.json()["dbtx_schema_version"] == 1
     assert "model.proj.a" in response.json()["nodes"]
+
+
+# --- The run history from the database (plan Phase 7) -------------------------
+# Given a history (`HistoryCache`, platform mode), the server answers
+# `dbtx_runtime.json` from it instead of from the file: JSON, never cached by the
+# browser, 503 with a JSON error when the database cannot give one.
+
+class FixedHistory:
+    """Stands in for a HistoryCache: a fixed document, or a failure."""
+
+    def __init__(self, document: bytes = b"", failure: str | None = None) -> None:
+        self.fixed_document = document
+        self.failure = failure
+        self.calls = 0
+
+    def document(self) -> bytes:
+        self.calls += 1
+        if self.failure is not None:
+            raise HistoryUnavailable(self.failure)
+        return self.fixed_document
+
+
+FROM_THE_DATABASE = json.dumps(
+    {"dbtx_schema_version": 1, "history_limit": 3, "nodes": {"model.proj.db": {"runs": []}}}
+).encode("utf-8")
+
+
+def test_the_history_is_served_instead_of_the_file(docs_loc: Path) -> None:
+    (docs_loc / "dbtx_runtime.json").write_text(
+        json.dumps({"dbtx_schema_version": 1, "history_limit": 3,
+                    "nodes": {"model.proj.file": {"runs": []}}}), encoding="utf-8")
+    history = FixedHistory(FROM_THE_DATABASE)
+
+    response = TestClient(create_app(docs_loc, history=history)).get("/dbtx_runtime.json?cb=123")
+
+    assert response.status_code == 200
+    assert response.content == FROM_THE_DATABASE
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["cache-control"] == "no-store"
+    assert history.calls == 1
+
+
+def test_the_history_is_served_without_a_file(docs_loc: Path) -> None:
+    response = TestClient(create_app(docs_loc, history=FixedHistory(FROM_THE_DATABASE))).get("/dbtx_runtime.json")
+    assert response.status_code == 200
+    assert "model.proj.db" in response.json()["nodes"]
+
+
+def test_an_unavailable_history_is_a_503(docs_loc: Path) -> None:
+    history = FixedHistory(failure="cannot read the run history from the database x: down")
+
+    response = TestClient(create_app(docs_loc, history=history)).get("/dbtx_runtime.json")
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "cannot read the run history from the database x: down"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_other_files_are_still_served_with_a_history(docs_loc: Path) -> None:
+    client = TestClient(create_app(docs_loc, history=FixedHistory(FROM_THE_DATABASE)))
+    assert client.get("/").status_code == 200
+    assert client.get("/manifest.json").status_code == 200
+
+
+def test_build_server_hands_the_history_to_the_app(docs_loc: Path) -> None:
+    instance = build_server(docs_loc, history=FixedHistory(FROM_THE_DATABASE))
+    response = TestClient(instance.config.app).get("/dbtx_runtime.json")
+    assert response.content == FROM_THE_DATABASE
 
 
 def test_overlay_asset_falls_back_to_the_packaged_copy(client: TestClient) -> None:

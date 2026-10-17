@@ -187,7 +187,7 @@ def run_command(config: DbtxConfig) -> int:
         # is no longer the one this runs. A named subcommand dbtx does not own
         # still falls through untouched, help flags and all.
         if len(args) == 1 or args[1] in ("-h", "--help") or args[1] in DOCS_SUBCOMMANDS:
-            return docs_command(docs_args(config, args[1:]))
+            return docs_command(docs_args(config, args[1:]), config)
 
     # Passed through to dbt. A recorded command (`run`, `test`, ...) is recorded.
     recorder = Recorder.for_invocation(config)

@@ -99,11 +99,11 @@ def hydrate(catalog: DocsCatalog, docs_loc: Path) -> int:
     return hydrated
 
 
-def write(catalog: DocsCatalog, docs_loc: Path) -> Path:
-    """Serializes the catalog's accumulated run history to the sidecar, atomically.
+def document(catalog: DocsCatalog) -> dict:
+    """The sidecar's content for the catalog's run history and reports.
 
-    Written via a temp file and `os.replace` so an interrupted write cannot
-    truncate what is the only copy of the accumulated history.
+    Also what `dbtx docs serve` sends from the database (docs/store_history.py), so
+    the overlay reads one shape whichever source it came from.
     """
     nodes: Dict[str, dict] = {}
     for unique_id, doc_node in catalog.nodes.items():
@@ -124,6 +124,16 @@ def write(catalog: DocsCatalog, docs_loc: Path) -> Path:
         'updated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         'nodes': nodes,
     }
+    return dat
+
+
+def write(catalog: DocsCatalog, docs_loc: Path) -> Path:
+    """Serializes the catalog's accumulated run history to the sidecar, atomically.
+
+    Written via a temp file and `os.replace` so an interrupted write cannot
+    truncate what is the only copy of the accumulated history.
+    """
+    dat = document(catalog)
 
     path = sidecar_path(docs_loc)
     path.parent.mkdir(parents=True, exist_ok=True)

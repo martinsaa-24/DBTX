@@ -16,6 +16,7 @@ from dbtx import cli
 from dbtx.docs import server
 from dbtx.docs.command import USAGE
 from dbtx.docs.command import run as docs_command
+from dbtx.docs.store_history import HistoryCache
 
 
 @pytest.fixture
@@ -77,6 +78,7 @@ def test_serve_defaults(served: list[dict], docs_loc: Path) -> None:
         "host": server.DEFAULT_HOST,
         "port": server.DEFAULT_PORT,
         "open_browser": False,
+        "history": None,
     }]
 
 
@@ -123,3 +125,97 @@ def test_unservable_docs_loc_exits_cleanly(
     """A ServerError must become an exit code, not a traceback."""
     assert docs_command(["serve", "--docs-loc", str(tmp_path / "nope")]) == 2
     assert "dbtx docs:" in capsys.readouterr().out
+
+
+# --- The run history from the database (plan Phase 7) -------------------------
+# Platform mode with the backend enabled: `docs serve` uses the database. It passes
+# the start-up checks like every database command, then serves the run history from
+# the database (a HistoryCache for the docs site's project). Standalone mode, or
+# DB_BACKEND=disabled: the sidecar file, as before (no history).
+
+
+def write_project_docs_site(platform_root: Path, project_name: str | None = "jaffle_shop") -> Path:
+    """`jaffle-shop`'s docs site (its target folder): index.html and a manifest."""
+    site = platform_root / "jaffle-shop" / "target"
+    site.mkdir(parents=True, exist_ok=True)
+    (site / "index.html").write_text("<html></html>", encoding="utf-8")
+    metadata = {}
+    if project_name is not None:
+        metadata["project_name"] = project_name
+    (site / "manifest.json").write_text(
+        json.dumps({"metadata": metadata, "nodes": {}, "exposures": {}}), encoding="utf-8")
+    return site
+
+
+def test_platform_serve_reads_the_history_from_the_database(
+    initialised_platform: Path, monkeypatch: pytest.MonkeyPatch, served: list[dict]
+) -> None:
+    site = write_project_docs_site(initialised_platform)
+    monkeypatch.chdir(initialised_platform)
+
+    assert cli.main(["docs", "serve", "--project-dir", "jaffle-shop"]) == 0
+
+    [call] = served
+    history = call["history"]
+    assert isinstance(history, HistoryCache)
+    assert (history.docs_loc, history.project) == (site, "jaffle_shop")
+
+
+def test_platform_serve_with_an_explicit_docs_loc_reads_the_database_too(
+    initialised_platform: Path, monkeypatch: pytest.MonkeyPatch, served: list[dict]
+) -> None:
+    site = write_project_docs_site(initialised_platform)
+    monkeypatch.chdir(initialised_platform)
+
+    assert cli.main(["docs", "serve", "--docs-loc", str(site)]) == 0
+
+    assert served[0]["history"].project == "jaffle_shop"
+
+
+def test_platform_serve_with_the_backend_disabled_serves_the_file(
+    platform: Path, monkeypatch: pytest.MonkeyPatch, served: list[dict]
+) -> None:
+    write_project_docs_site(platform)
+    monkeypatch.chdir(platform)
+
+    assert cli.main(["docs", "serve", "--project-dir", "jaffle-shop", "--db-backend", "disabled"]) == 0
+
+    assert served[0]["history"] is None
+
+
+def test_standalone_serve_serves_the_file(
+    lone_project: Path, monkeypatch: pytest.MonkeyPatch, served: list[dict]
+) -> None:
+    site = lone_project / "target"
+    site.mkdir()
+    (site / "index.html").write_text("<html></html>", encoding="utf-8")
+    monkeypatch.chdir(lone_project)
+
+    assert cli.main(["docs", "serve", "--docs-loc", str(site), "--standalone-mode"]) == 0
+
+    assert served[0]["history"] is None
+
+
+def test_platform_serve_needs_an_initialised_database(
+    platform: Path, monkeypatch: pytest.MonkeyPatch, served: list[dict], capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_project_docs_site(platform)
+    monkeypatch.chdir(platform)
+
+    assert cli.main(["docs", "serve", "--project-dir", "jaffle-shop"]) == 2
+
+    assert "dbtx db init" in capsys.readouterr().err
+    assert served == []
+
+
+def test_platform_serve_needs_a_project_name_in_the_docs_manifest(
+    initialised_platform: Path, monkeypatch: pytest.MonkeyPatch, served: list[dict],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_project_docs_site(initialised_platform, project_name=None)
+    monkeypatch.chdir(initialised_platform)
+
+    assert cli.main(["docs", "serve", "--project-dir", "jaffle-shop"]) == 2
+
+    assert "metadata.project_name" in capsys.readouterr().out
+    assert served == []

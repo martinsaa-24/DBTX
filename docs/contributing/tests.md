@@ -64,6 +64,7 @@ Unit tests mirror `src/dbtx/`. The default is **one test file per source module*
 | `dbtx/docs/server.py` | `test_docs_server.py` |
 | `dbtx/docs/sidecar.py` (with `catalog.py`, `patch.py`) | `test_docs_sidecar.py` |
 | `dbtx/docs/exposure_reports.py` | `test_docs_exposure_reports.py` |
+| `dbtx/docs/store_history.py` (the run history served from the database, and its cache) | `store/test_store_docs_history.py`: under `store/`, because it needs the `store` fixture (every backend) |
 | `dbtx/runs.py`: the run folder at run time (created after the checks, warm cache, the job id for dbt) | `test_runs.py`; the docs site after a run: `test_docs_site.py` |
 | `dbtx warm-cache` (`cli.py`) | `test_warm_cache.py` |
 

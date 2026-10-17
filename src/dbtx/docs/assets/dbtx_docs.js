@@ -113,7 +113,12 @@
     table.style.marginBottom = "0";
     var tbody = el("tbody");
     tbody.appendChild(row("Last ran", fmtTimestamp(run.last_ran_at)));
-    tbody.appendChild(row("Last compiled", fmtTimestamp(run.last_compiled_at)));
+    // When the version of the node this run used first appeared. Only the database
+    // knows it (`dbtx docs serve` in platform mode); a sidecar file has none. Compile
+    // times are not shown: every run compiles, and so does `dbtx compile` on its own.
+    if (run.updated_at) {
+      tbody.appendChild(row("Updated", fmtTimestamp(run.updated_at)));
+    }
     // Job above invocation: the job id is the identifier a reader is likely to
     // recognise, the invocation id the one that uniquely pins the run.
     if (run.job_id) {

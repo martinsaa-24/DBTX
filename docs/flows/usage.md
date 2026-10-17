@@ -71,7 +71,8 @@ Then create dbtx's tables once with `dbtx db init`, and after upgrading dbtx run
 | `dbtx warm-cache` | refreshes the project's partial-parse cache in its target folder, without running anything | not available |
 | `dbtx ls`, `debug`, `deps`, `show`, `clean`, ... | plain dbt, not recorded | plain dbt |
 | `dbtx docs patch` | explicit `--docs-loc` and `--run-loc`; also run automatically after each run | explicit `--docs-loc` and `--run-loc` |
-| `dbtx docs install`, `status`, `serve` | `--docs-loc` defaults to the project's target folder | `--docs-loc` required |
+| `dbtx docs install`, `status` | `--docs-loc` defaults to the project's target folder | `--docs-loc` required |
+| `dbtx docs serve` | `--docs-loc` defaults to the project's target folder; the run history comes from the database | `--docs-loc` required; the run history comes from the sidecar file |
 | `dbtx templates` | the project's templates | the project's templates |
 | `dbtx config` | mode, root, project, config file, every option and its source | mode and the ignored `DBTX_*` variables |
 | `dbtx db init`, `upgrade`, `status`, `load`, `projects` | available | exit 2 |

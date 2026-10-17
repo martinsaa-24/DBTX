@@ -1421,12 +1421,65 @@ an error in standalone mode, which keeps dbt's own `target/` and `logs/`.
   example sequence (broken since Phase 5: no `--standalone-mode`) now shows the
   platform flow and a standalone variant
 
-### Phase 7 (follow-up, separate plan): Consumers
+### Phase 7: The docs server reads run history from the database
+
+Agreed with the user (2026-10-14). Replaces the first Phase 7 bullet below
+("`docs patch --from-store`"): instead of rebuilding the sidecar from the database,
+`dbtx docs serve` answers the overlay's one data request from the database, with a cache.
+
+- **What the overlay loads:** one request, `GET dbtx_runtime.json?cb=<time>`
+  (`dbtx_docs.js`). In platform mode with the backend enabled, the server answers that
+  route itself, in the sidecar's JSON shape, from the database. Standalone mode, or
+  `DB_BACKEND=disabled`: the file, as before.
+- **The document** (`src/dbtx/docs/store_history.py`), built with the same
+  `DocsCatalog` the sidecar uses, so staleness and reports cannot drift between the two:
+  - the node set: the docs site's `manifest.json` (nodes and exposures), as today
+  - the project: the docs site's `manifest.json` `metadata.project_name`
+  - `runs` per node: its newest `history_limit` results (the sidecar's own limit, else
+    the default), newest first, ordered by the invocation's `start_time` (never NULL;
+    a skipped node's `completed_at` is, and the backends sort NULLs differently). Only
+    invocations whose command executes nodes (`build`, `run`, `test`, `seed`,
+    `snapshot`), the ones whose results are patched into the sidecar today: a `compile`
+    is not a run
+  - per run: `status`, `execution_time`, `checksum`, `last_ran_at` (`completed_at`),
+    `run_invocation_id`, `run_generated_at` (the invocation's `end_time`), `job_id`
+    (the invocation's), `stale` (the run's checksum against the docs manifest's), and
+    the new **`updated_at`**: `node_version.first_seen_at` of the checksum the run
+    used (when that version of the node first appeared). NULL without a checksum
+    (sources, exposures). `last_compiled_at` is NULL (not stored)
+  - `report`: found on disk under `<site>/reports/`, as the sidecar does
+- **Overlay wording (user):** the latest run shows "Last ran" and "Updated" (the
+  version's time, when known); "Last compiled" is no longer shown, because a node is
+  compiled by every run and by `dbtx compile` on its own, so it says little.
+- **Cache:** the built document is kept in memory with a version token: the project's
+  invocation count and newest `end_time`, and the docs `manifest.json`'s modification
+  time. The token is checked at most once per probe interval (default 5 s); unchanged
+  → the cached bytes. Rebuilt under a lock. Database work runs in Starlette's thread
+  pool. A database error with a cached document → the cached document and one warning;
+  with none → `503` with a JSON error.
+- **Configuration:** `docs serve` moves to the commands that use the database: in
+  platform mode with the backend enabled it needs `DB_URI` and passes the start-up
+  checks (connect, revision; G1/G2 only with a project) before binding the port.
+- **Kept:** the sidecar is still written after every run (user): the site keeps working
+  as plain files or behind another server, and the patch installs the overlay.
+- **Accepted (user):** history that exists only in a sidecar (runs before the database,
+  plain dbt runs not loaded with `dbtx db load`) is not shown by a database-backed
+  server.
+
+**Status: implemented (2026-10-17), uncommitted.** Progress and details are in
+[phase7_state.md](phase7_state.md). Deviations from this section:
+- the cache's version also covers the sidecar file (its history limit) and the reports
+  folder, so a changed limit or a re-rendered report is picked up
+- no ETag: `dbtx_runtime.json` is `no-store` (the existing policy) and the overlay adds
+  a cache-busting query, so a browser would never revalidate
+- the project is read from the docs manifest once, when the server starts
+- generic tests: dbt gives them an empty checksum, which the database stores; the served
+  document uses the node's name instead, as the sidecar does, so they are not stale.
+  Their "Updated" is when the test first appeared
+
+### Phase 8+ (follow-up, separate plans): Consumers
 Not part of this delivery, listed so the schema choices are checked against them:
-- `dbtx docs patch --from-store`: build the `dbtx_runtime.json` history from
-  `node_result` (index `(project, unique_id, completed_at)`) instead of accumulating it
-  in the sidecar.
-- A job worker that drains the queue with `claim_next`, runs `dbtx build --vars job_id:…`
+- A job worker that drains the queue with `claim_next`, runs `dbtx build --job-id …`
   and finishes the job from the invocation's result.
 - Docs server endpoints for recent activity (`(project, start_time)`) and latest render
   per report (`(project, exposure_id, completed_at)`).

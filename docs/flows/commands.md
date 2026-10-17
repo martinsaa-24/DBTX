@@ -35,7 +35,8 @@ Terms used below:
 | `dbtx ls`, `debug`, `deps`, `show`, `clone`, `init` | no | no | — | untouched |
 | `dbtx clean` | no | no | — | **deleted** with the rest of `target/` (see below) |
 | `dbtx retry` | no | no | — | untouched; finds no previous run (see below) |
-| `dbtx docs install`, `status`, `serve` | no | no | — | read (install: adds the overlay); `--docs-loc` defaults to it |
+| `dbtx docs install`, `status` | no | no | — | read (install: adds the overlay); `--docs-loc` defaults to it |
+| `dbtx docs serve` | no | no | — (reads the run history from the database) | read; `--docs-loc` defaults to it |
 | `dbtx docs patch` | no | no | — | patched with the `--run-loc` you name (explicit options) |
 | `dbtx db init`, `upgrade` | no | no | — | the only commands that change the database's schema |
 | `dbtx db status`, `projects`, `load`, `config`, `templates` | no | no | `db load`: nodes, reports and runs from artifacts | untouched |
@@ -155,13 +156,20 @@ no run folder, no job id, no database connection; the docs site is untouched.
 
 - `install`: adds dbtx's overlay to the site's `index.html` (`--uninstall` removes it).
 - `status`: coverage, staleness and the last patch, read from the site.
-- `serve`: serves the site (needs the `serve` extra).
+- `serve`: serves the site (needs the `serve` extra). In platform mode with the backend
+  enabled, the overlay's run history (`dbtx_runtime.json`) comes from the database, not
+  from the sidecar file: the project's newest runs (`build`, `run`, `test`, `seed`,
+  `snapshot`), cached and checked for new ones at most every 5 seconds. It is a
+  database command there: `DB_URI` and an initialised, current database are checked
+  before the port is bound. Otherwise (`--db-backend disabled`, standalone) it serves
+  the file.
 - `patch`: merges one run (`--run-loc`) into a site (`--docs-loc`); always explicit,
   in both modes. Platform runs call it for you.
 
 In platform mode `install`, `status` and `serve` default `--docs-loc` to the project's
 docs site (name the project with `--project-dir`, or run from its folder). None of
-them record anything.
+them record anything. With an explicit `--docs-loc`, `serve` takes the project from the
+site's `manifest.json` (`metadata.project_name`).
 
 ## `dbtx db ...`, `config`, `templates`
 

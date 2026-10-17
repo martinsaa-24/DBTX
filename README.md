@@ -211,8 +211,10 @@ run data goes in a sibling `dbtx_runtime.json`, and `index.html` gains one marke
   matches the docs manifest the node's SQL has changed since it ran, and the result is
   flagged stale rather than presented as current.
 - The overlay renders as a **Run Results** panel directly below a node's Description:
-  status badge, duration, last ran / last compiled, the run's job and invocation ids, a
-  stale banner where applicable, and a table of previous runs carrying the same two ids.
+  status badge, duration, last ran, the run's job and invocation ids, a stale banner where
+  applicable, and a table of previous runs carrying the same two ids. Served from the
+  database (platform mode, below), it also shows **Updated**: when the version of the
+  node that run used first appeared.
 - Each result records the **job id** its invocation was launched with, read from the run's
   `--vars`. `run_results.json` is the only artifact this can come from: dbt copies the
   resolved command line into its top-level `args` verbatim, whereas `manifest.json` carries
@@ -295,13 +297,41 @@ overlay is in the picture, and two further differences follow from `serve` being
 - **A `--static` bundle is served as-is, without the overlay.** `serve` only validates that
   the directory holds an `index.html`, so unlike `install` and `patch` it does not refuse
   one -- it just has no sidecar to serve. See [the `--static` note](#docs-run-data) above.
+- **In platform mode the run history comes from the database** (below).
+
+#### Run history from the database (platform mode)
+
+In platform mode with the backend enabled, `dbtx docs serve` answers the overlay's one
+data request, `dbtx_runtime.json`, from the run history database instead of from the
+file. The page is unchanged: the document has the sidecar's shape.
+
+- **The node set** is the docs site's `manifest.json`, and the project its
+  `metadata.project_name`. Each node shows its newest runs (the sidecar's history limit,
+  default 3) from the commands that execute nodes (`build`, `run`, `test`, `seed`,
+  `snapshot`), newest first. A `compile` is not a run.
+- **Updated** is when the version of the node a run used (its checksum) first appeared
+  in a manifest. Staleness and the rendered reports work as for the sidecar.
+- **Caching:** the document is built once and kept. At most every 5 seconds the server
+  checks whether anything it is built from changed (the project's runs in the database,
+  the docs manifest, the sidecar file, the reports folder) and rebuilds only then. A
+  new run therefore shows up within a few seconds, without restarting the server.
+- **When the database fails** while serving, the last document is served and one
+  warning is printed until the database answers again. Before any document was built,
+  the request gets a 503 and the page shows no run data.
+- `docs serve` is a database command here: it needs `DB_URI` and an initialised,
+  current database (`dbtx db init` / `upgrade`), checked before the port is bound.
+  With `--db-backend disabled`, and in standalone mode, it serves the file.
+- The sidecar is still written after every run, so the site keeps working as plain
+  files or behind another web server. History that exists only in a sidecar (runs from
+  before the database, plain `dbt` runs not imported with `dbtx db load`) is not shown
+  by a database-backed server.
 
 dbt's server sends no cache validators at all, so every reload refetches the full manifest.
 Three policies are needed instead, because the files have three different lifetimes:
 
 | File | Policy | Why |
 |---|---|---|
-| `index.html`, `dbtx_runtime.json` | `no-store` | rewritten in place, by `dbt docs generate` and `dbtx docs patch`, under a running server |
+| `index.html`, `dbtx_runtime.json` | `no-store` | rewritten in place, by `dbt docs generate` and `dbtx docs patch`, under a running server (or, in platform mode, built from the database) |
 | `dbtx_docs.js?v=<hash>` | immutable, 1 year | the URL carries a content hash, so its bytes never change |
 | `manifest.json`, `catalog.json`, everything else | ETag + Last-Modified | unchanged since the last load is a 304, not a refetch |
 
@@ -432,9 +462,10 @@ then the environment. `.env` files are never read.
   run in a run folder (the recorded commands below) need it, whatever `DB_BACKEND`
   says; a relative path is relative to the config file's directory (or the current
   directory, from the CLI or the environment).
-- With the backend enabled, a command that records runs (below) needs `DB_URI`;
-  without one it exits 2 before dbt starts. Commands that do not touch the database
-  (`ls`, `debug`, `deps`, `docs serve`, `templates`, ...) never need it, and
+- With the backend enabled, a command that records runs (below), and `dbtx docs serve`
+  (which reads the run history), needs `DB_URI`; without one it exits 2 before dbt
+  starts. Commands that do not touch the database (`ls`, `debug`, `deps`, `docs patch`,
+  `templates`, ...) never need it, and
   `dbtx config` / `dbtx db status` report a missing URI instead of failing.
 
 > **Upgrading from a version without run history.** dbtx now records every run, so
@@ -691,8 +722,9 @@ dbtx docs: serving .../examples/jaffle_shop/target
   http://127.0.0.1:8080  (ctrl-c to quit)
 ```
 
-Shell 1 — each run patches the site as it finishes; refresh the browser to see it (the
-overlay re-fetches the sidecar on load, so the server does not need restarting):
+Shell 1 — each run is recorded in the database, which the server reads its run history
+from (it checks for new runs every few seconds), and patches the site's sidecar as it
+finishes; refresh the browser to see it, no server restart needed:
 
 ```console
 $ dbtx run -s stg_customers stg_orders --platform-dir ..

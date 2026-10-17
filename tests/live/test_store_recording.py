@@ -23,9 +23,15 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
+from starlette.testclient import TestClient
 
 from dbtx.cli import main
+from dbtx.config import load_config
+from dbtx.docs import store_history
+from dbtx.docs.server import create_app
+from dbtx.docs.store_history import HistoryCache
 from dbtx.store import models as m
+from dbtx.store import open_store
 from dbtx.store import recorder
 from dbtx.store.loaders.run_results import parse_timestamp
 from tests.live.conftest import NO_SEEDS, Project, chdir, copy_project
@@ -516,3 +522,61 @@ def test_the_docs_site_is_kept_current(platform: PlatformProject, capsys: pytest
     [latest] = sidecar["nodes"]["model.jaffle_shop.customers"]["runs"]
     assert latest["job_id"] == platform.invocations()[-1].job_id
     assert sidecar["nodes"]["exposure.jaffle_shop.top_customers"]["report"]
+
+
+# --------------------------------------------------------------------------------------
+# The docs server reads the run history from the database (plan Phase 7)
+# --------------------------------------------------------------------------------------
+
+
+def served_history(client: TestClient) -> dict[str, Any]:
+    response = client.get("/dbtx_runtime.json?cb=1")
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_the_docs_server_serves_the_run_history_from_the_database(
+    platform: PlatformProject, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What `dbtx docs serve` builds in platform mode: the store from the platform's
+    configuration, a HistoryCache for the docs site, the app with that history."""
+    site = platform.target
+    assert platform.dbtx("docs", "generate") == 0
+    assert platform.dbtx("docs", "install") == 0
+    assert platform.dbtx("build", "-s", "+exposure:top_customers", *NO_SEEDS) == 0
+    capsys.readouterr()
+
+    probe_time = [1000.0]
+    monkeypatch.setattr(store_history, "monotonic", lambda: probe_time[0])
+    with chdir(platform.root):
+        config = load_config(["docs", "serve", "--project-dir", "jaffle-shop"])
+    store = open_store(config)
+    try:
+        client = TestClient(create_app(site, history=HistoryCache(store, site)))
+        served = served_history(client)
+
+        # The same runs the sidecar holds for this build, with the database's own fields.
+        sidecar = json.loads((site / "dbtx_runtime.json").read_text(encoding="utf-8"))
+        ran = sorted(uid for uid, entry in sidecar["nodes"].items() if entry.get("runs"))
+        assert sorted(uid for uid, entry in served["nodes"].items() if entry.get("runs")) == ran
+        for unique_id in ran:
+            [from_file] = sidecar["nodes"][unique_id]["runs"]
+            [from_database] = served["nodes"][unique_id]["runs"]
+            for key in ("status", "execution_time", "checksum", "run_invocation_id", "job_id", "stale"):
+                assert from_database[key] == from_file[key], (unique_id, key)
+            assert parse_timestamp(from_database["last_ran_at"]) == parse_timestamp(from_file["last_ran_at"])
+        [customers] = served["nodes"]["model.jaffle_shop.customers"]["runs"]
+        assert customers["updated_at"] is not None
+        assert served["nodes"]["exposure.jaffle_shop.top_customers"]["report"]["html"] == "reports/top_customers.html"
+
+        # A later build shows up once the probe interval has passed.
+        assert platform.dbtx("build", "-s", "customers", *NO_SEEDS) == 0
+        capsys.readouterr()
+        probe_time[0] += store_history.PROBE_INTERVAL_SECONDS
+        runs = served_history(client)["nodes"]["model.jaffle_shop.customers"]["runs"]
+        assert [run["run_invocation_id"] for run in runs] == [
+            platform.invocations()[-1].invocation_id,
+            customers["run_invocation_id"],
+        ]
+    finally:
+        store.dispose()

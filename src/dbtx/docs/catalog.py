@@ -51,7 +51,8 @@ class NodeResult:
                  run_invocation_id: Optional[str] = None,
                  run_generated_at: Optional[str] = None,
                  job_id: Optional[str] = None,
-                 stale: bool = False):
+                 stale: bool = False,
+                 updated_at: Optional[str] = None):
         self.node_name: str = node_name
         self.node_status: str = node_status
         self.execution_time: float = execution_time
@@ -68,6 +69,10 @@ class NodeResult:
         # recorded before job ids were tracked.
         self.job_id: Optional[str] = job_id
         self.stale: bool = stale
+        # When the version of the node this run used (its checksum) first appeared.
+        # Only the database knows it (`node_version.first_seen_at`); None in files
+        # patched from run artifacts.
+        self.updated_at: Optional[str] = updated_at
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +84,7 @@ class NodeResult:
             'run_invocation_id': self.run_invocation_id,
             'run_generated_at': self.run_generated_at,
             'job_id': self.job_id,
+            'updated_at': self.updated_at,
             'stale': self.stale,
         }
 
@@ -95,6 +101,7 @@ class NodeResult:
             run_generated_at=dat.get('run_generated_at'),
             job_id=dat.get('job_id'),
             stale=dat.get('stale', False),
+            updated_at=dat.get('updated_at'),
         )
 
     def __str__(self):

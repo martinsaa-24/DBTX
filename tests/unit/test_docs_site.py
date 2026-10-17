@@ -236,7 +236,7 @@ def test_a_failed_docs_generate_copies_nothing(
 def docs_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     calls: list[list[str]] = []
 
-    def fake_docs_command(args: list[str]) -> int:
+    def fake_docs_command(args: list[str], config: object = None) -> int:
         calls.append(list(args))
         return 0
 
@@ -246,17 +246,19 @@ def docs_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 @pytest.mark.parametrize("sub", ["install", "status", "serve"])
 def test_docs_loc_defaults_to_the_projects_docs_site(
-    platform: Path, monkeypatch: pytest.MonkeyPatch, docs_calls: list[list[str]], sub: str
+    initialised_platform: Path, monkeypatch: pytest.MonkeyPatch, docs_calls: list[list[str]], sub: str
 ) -> None:
+    """`serve` uses the database (plan Phase 7), so the platform's is initialised."""
+    platform = initialised_platform
     monkeypatch.chdir(platform)
     assert cli.main(["docs", sub, "--project-dir", "jaffle-shop"]) == 0
     assert docs_calls == [[sub, "--docs-loc", str(platform / "jaffle-shop" / "target")]]
 
 
 def test_an_explicit_docs_loc_needs_no_project(
-    platform: Path, monkeypatch: pytest.MonkeyPatch, docs_calls: list[list[str]]
+    initialised_platform: Path, monkeypatch: pytest.MonkeyPatch, docs_calls: list[list[str]]
 ) -> None:
-    monkeypatch.chdir(platform)
+    monkeypatch.chdir(initialised_platform)
     assert cli.main(["docs", "serve", "--docs-loc", "/srv/site", "--port", "9000"]) == 0
     assert docs_calls == [["serve", "--docs-loc", "/srv/site", "--port", "9000"]]
 

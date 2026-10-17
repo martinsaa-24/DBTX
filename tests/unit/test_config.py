@@ -1090,6 +1090,13 @@ def test_missing_uri_is_fine_when_disabled_or_unused(
     load_config(argv)
 
 
+def test_docs_serve_uses_the_database(platform: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """It serves the run history from the database (plan Phase 7)."""
+    monkeypatch.chdir(platform)
+    assert "docs serve" in config.COMMANDS_THAT_USE_THE_DATABASE
+    assert load_config(["docs", "serve", "--project-dir", "jaffle-shop"]).uses_database is True
+
+
 @pytest.mark.parametrize("command", config.COMMANDS_THAT_USE_THE_DATABASE)
 def test_commands_that_use_the_database(
     platform: Path,
@@ -1105,7 +1112,7 @@ def test_commands_that_use_the_database(
     "command",
     [
         "config", "db status", "ls", "list", "debug", "deps", "clean", "show",
-        "retry", "clone", "docs serve", "docs patch", "templates",
+        "retry", "clone", "docs patch", "templates",
     ],
 )
 def test_commands_that_do_not_require_the_database(

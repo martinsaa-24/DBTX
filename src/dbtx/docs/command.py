@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from dbtx.docs import injector, sidecar
 from dbtx.docs.catalog import DEFAULT_JOB_ID_VAR
 from dbtx.docs.exposure_reports import REPORTS_SUBDIR
 from dbtx.docs.patch import PatchError, patch, status
+
+if TYPE_CHECKING:
+    from dbtx.config import DbtxConfig
 
 USAGE = """\
 dbtx docs patch   --docs-loc DIR --run-loc DIR [--history N] [--force] [--no-overlay]
@@ -46,7 +49,9 @@ def _docs_loc(args: List[str]) -> Path:
     return Path(value)
 
 
-def run(args: List[str]) -> int:
+def run(args: List[str], config: Optional[DbtxConfig] = None) -> int:
+    """`dbtx docs <subcommand>`. `config` is dbtx's configuration (None when called
+    without one): `serve` reads the run history from the database in platform mode."""
     if not args or args[0] in ("-h", "--help"):
         print(USAGE, end="")
         return 0
@@ -60,7 +65,7 @@ def run(args: List[str]) -> int:
         if sub == "status":
             return _status(rest)
         if sub == "serve":
-            return _serve(rest)
+            return _serve(rest, config)
     except (PatchError, sidecar.SidecarError, injector.InjectionError) as exc:
         print(f"dbtx docs: {exc}")
         return 2
@@ -134,7 +139,7 @@ def _status(args: List[str]) -> int:
     return 0
 
 
-def _serve(args: List[str]) -> int:
+def _serve(args: List[str], config: Optional[DbtxConfig] = None) -> int:
     # Imported here, not at module scope: the server needs the optional
     # `serve` extra, and `dbtx docs patch/install/status` must keep working
     # without it.
@@ -156,13 +161,42 @@ def _serve(args: List[str]) -> int:
     if not 0 <= port <= server.MAX_PORT:
         raise PatchError(f"--port must be between 0 and {server.MAX_PORT}, got {port}")
 
+    # Platform mode with the backend enabled: the run history comes from the database
+    # (plan Phase 7). The start-up checks have already connected and checked it.
+    reads_the_database = config is not None and config.is_platform and config.backend_enabled
+    if not reads_the_database:
+        try:
+            server.serve(
+                docs_loc,
+                host=_opt(args, "--host") or server.DEFAULT_HOST,
+                port=port,
+                open_browser="--browser" in args,
+                history=None,
+            )
+        except server.ServerError as exc:
+            raise PatchError(str(exc)) from exc
+        return 0
+
+    from dbtx.docs.store_history import HistoryCache, HistoryError
+    from dbtx.store import open_store
+
+    assert config is not None
+    store = open_store(config)
     try:
-        server.serve(
-            docs_loc,
-            host=_opt(args, "--host") or server.DEFAULT_HOST,
-            port=port,
-            open_browser="--browser" in args,
-        )
-    except server.ServerError as exc:
-        raise PatchError(str(exc)) from exc
+        try:
+            history = HistoryCache(store, docs_loc)
+        except HistoryError as exc:
+            raise PatchError(str(exc)) from exc
+        try:
+            server.serve(
+                docs_loc,
+                host=_opt(args, "--host") or server.DEFAULT_HOST,
+                port=port,
+                open_browser="--browser" in args,
+                history=history,
+            )
+        except server.ServerError as exc:
+            raise PatchError(str(exc)) from exc
+    finally:
+        store.dispose()
     return 0

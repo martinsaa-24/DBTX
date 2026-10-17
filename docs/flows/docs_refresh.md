@@ -31,3 +31,11 @@ executes nodes (`build`, `run`, `test`, ...) finishes by:
 
 `dbtx docs patch` stays a separate utility. Called from the command line it always
 takes explicit `--docs-loc` and `--run-loc`.
+
+## Serving the site
+
+`dbtx docs serve --project-dir jaffle-shop` serves the site. In platform mode with the
+backend enabled, the run history the overlay shows comes from the database, not from
+the patched sidecar file: the server checks for new runs at most every 5 seconds, so a
+refresh of the browser shows a run that just finished. The sidecar is still patched
+after every run, for the site as plain files or behind another web server.
